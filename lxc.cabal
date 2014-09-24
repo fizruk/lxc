@@ -14,9 +14,12 @@ extra-source-files:  README.md
 cabal-version:       >=1.10
 
 library
-  -- hs-source-dirs:     src
+  hs-source-dirs:     src
   default-language:   Haskell2010
-  -- exposed-modules:
+  exposed-modules:
+    LXC
+    LXC.Container
+    LXC.AttachOptions
   -- other-modules:
   -- other-extensions:
   build-depends:      base          >=4.7   &&  <4.8
