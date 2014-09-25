@@ -73,6 +73,11 @@ data BDevSpecs = BDevSpecs
   , bdevDirectory             :: String         -- ^ Directory path.
   }
 
+-- | Marshal Haskell 'BDevSpecs' into C structure using temporary storage.
+--
+-- * the memory is freed when the subcomputation terminates (either
+--   normally or via an exception), so the pointer to the temporary
+--   storage must /not/ be used after this.
 withC'bdev_specs :: BDevSpecs -> (Ptr C'bdev_specs -> IO a) -> IO a
 withC'bdev_specs specs f = do
   withCString (bdevFSType                        specs) $ \cFSType ->
