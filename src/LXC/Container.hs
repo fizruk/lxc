@@ -146,15 +146,16 @@ mkContainer name configPath = do
 
 type Field s a = Ptr s -> Ptr a
 
-boolFn :: Field C'lxc_container (FunPtr ContainerBoolFn) -> Container -> IO Bool
-boolFn f (Container c) = do
-  fn <- peek (f c)
-  (== 1) <$> mkBoolFn fn c
+mkFn :: (t -> Ptr s) -> (FunPtr (Ptr s -> a) -> (Ptr s -> a)) -> Field s (FunPtr (Ptr s -> a)) -> t -> IO a
+mkFn unwrap mk g t = do
+  let s = unwrap t
+  fn <- peek (g s)
+  return $ mk fn s
 
-stringFn :: Field C'lxc_container (FunPtr ContainerStringFn) -> Container -> IO String
-stringFn f (Container c) = do
-  fn <- peek (f c)
-  mkStringFn fn c >>= peekCString
+boolFn :: Field C'lxc_container (FunPtr ContainerBoolFn) -> Container -> IO Bool
+boolFn g c = do
+  fn <- mkFn getContainer mkBoolFn g c
+  (== 1) <$> fn
 
 -- | Determine if @\/var\/lib\/lxc\/\$name\/config@ exists.
 --
@@ -170,7 +171,10 @@ isRunning = boolFn p'lxc_container'is_running
 
 -- | Determine state of container.
 state :: Container -> IO ContainerState
-state = fmap parseState . stringFn p'lxc_container'state
+state (Container c) = do
+  fn <- peek (p'lxc_container'state c)
+  cs <- mkStringFn fn c  -- we do not need to free cs
+  parseState <$> peekCString cs
 
 -- | Freeze running container.
 --
@@ -189,6 +193,18 @@ unfreeze = boolFn p'lxc_container'unfreeze
 -- @True@ on success, else @False@.
 stop :: Container -> IO Bool
 stop = boolFn p'lxc_container'stop
+
+-- | Return current config file name.
+configFileName :: Container -> IO (Maybe FilePath)
+configFileName (Container c) = do
+  fn <- peek (p'lxc_container'config_file_name c)
+  cs <- mkStringFn fn c
+  if (cs == nullPtr)
+    then return Nothing
+    else do
+      s <- peekCString cs
+      free cs
+      return $ Just s
 
 -- | Delete the container.
 --
