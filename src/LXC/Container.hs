@@ -23,6 +23,10 @@ type ContainerCreateFn = Ptr C'lxc_container -> CString -> CString -> Ptr C'bdev
 foreign import ccall "dynamic"
   mkCreateFn :: FunPtr ContainerCreateFn -> ContainerCreateFn
 
+type ContainerCloneFn = Ptr C'lxc_container -> CString -> CString -> CInt -> CString -> CString -> C'uint64_t -> Ptr CString -> IO (Ptr C'lxc_container)
+foreign import ccall "dynamic"
+  mkCloneFn :: FunPtr ContainerCloneFn -> ContainerCloneFn
+
 -- | Options for 'clone' operation.
 data CloneOption
   = CloneKeepName        -- ^ Do not edit the rootfs to change the hostname.
@@ -66,11 +70,11 @@ newtype Container = Container {
 data BDevSpecs = BDevSpecs
   { bdevFSType                :: String         -- ^ Filesystem type.
   , bdevFSSize                :: Word64         -- ^ Filesystem size in bytes.
-  , bdevZFSRootPath           :: String         -- ^ ZFS root path.
+  , bdevZFSRootPath           :: FilePath       -- ^ ZFS root path.
   , bdevLVMVolumeGroupName    :: String         -- ^ LVM Volume Group name.
   , bdevLVMLogicalVolumeName  :: String         -- ^ LVM Logical Volume name.
   , bdevLVMThinPool           :: Maybe String   -- ^ LVM thin pool to use, if any.
-  , bdevDirectory             :: String         -- ^ Directory path.
+  , bdevDirectory             :: FilePath       -- ^ Directory path.
   }
 
 -- | Marshal Haskell 'BDevSpecs' into C structure using temporary storage.
@@ -114,7 +118,7 @@ create :: Container         -- ^ Container (with lxcpath, name and a starting co
        -> String            -- ^ Template to execute to instantiate the root filesystem and adjust the configuration.
        -> Maybe String      -- ^ Backing store type to use (if @Nothing@, @dir@ type will be used by default).
        -> Maybe BDevSpecs   -- ^ Additional parameters for the backing store (for example LVM volume group to use).
-       -> [CreateOption]    -- ^ 'CreateOption' options. /Note: LXC 1.0 supports only @CreateQuiet@ option./
+       -> [CreateOption]    -- ^ 'CreateOption' flags. /Note: LXC 1.0 supports only @CreateQuiet@ option./
        -> [String]          -- ^ Arguments to pass to the template.
        -> IO Bool           -- ^ @True@ on success. @False@ otherwise.
 create c t bdevtype bdevspecs flags argv = do
@@ -133,3 +137,32 @@ create c t bdevtype bdevspecs flags argv = do
                      cargv'
   return (r == 1)
 
+-- | Copy a stopped container.
+clone :: Container      -- ^ Original container.
+      -> Maybe String   -- ^ New name for the container. If @Nothing@, the same name is used and a new lxcpath MUST be specified.
+      -> Maybe FilePath -- ^ lxcpath in which to create the new container. If @Nothing@, the original container's lxcpath will be used.
+      -> [CloneOption]  -- ^ Additional 'CloneOption' flags to change the cloning behaviour.
+      -> Maybe String   -- ^ Optionally force the cloned bdevtype to a specified plugin. By default the original is used (subject to snapshot requirements).
+      -> Maybe String   -- ^ Information about how to create the new storage (i.e. fstype and fsdata).
+      -> Maybe Word64   -- ^ In case of a block device backing store, an optional size. If @Nothing@, the original backing store's size will be used if possible. Note this only applies to the rootfs. For any other filesystems, the original size will be duplicated.
+      -> [String]       -- ^ Additional arguments to pass to the clone hook script.
+      -> IO Container
+clone c newname lxcpath flags bdevtype bdevdata newsize hookargs = do
+  c' <- maybeWith withCString newname $ \cnewname ->
+          maybeWith withCString lxcpath $ \clxcpath ->
+            maybeWith withCString bdevtype $ \cbdevtype ->
+              maybeWith withCString bdevdata $ \cbdevdata ->
+                withMany withCString hookargs $ \chookargs ->
+                  withArray0 nullPtr chookargs $ \chookargs' -> do
+                    fn <- peek $ p'lxc_container'clone $ getContainer c
+                    mkCloneFn fn
+                      (getContainer c)
+                      cnewname
+                      clxcpath
+                      (mkFlags cloneFlag flags)
+                      cbdevtype
+                      cbdevdata
+                      (fromMaybe 0 newsize)
+                      chookargs'
+  when (c' == nullPtr) $ error "failed to clone a container"
+  return $ Container c'
