@@ -569,6 +569,12 @@ snapshotRestore :: Container  -- ^ Container.
                 -> IO Bool    -- ^ @True@ on success, else @False@.
 snapshotRestore = setItemFn' p'lxc_container'snapshot_restore
 
+-- | Destroy the specified snapshot.
+snapshotDestroy :: Container  -- ^ Container.
+                -> String     -- ^ Name of snapshot.
+                -> IO Bool    -- ^ @True@ on success, else @False@.
+snapshotDestroy c n = stringBoolFn p'lxc_container'snapshot_destroy c (Just n)
+
 -- | Determine if the caller may control the container.
 --
 -- @False@ if there is a control socket for the container monitor
