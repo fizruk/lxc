@@ -39,7 +39,7 @@ data CloneOption
 
 -- | Options for 'create' operation.
 data CreateOption
-  = CreateQuiet          -- ^ Redirect @stdin@ to @/dev/zero@ and @stdout@ and @stderr@ to @/dev/null@.
+  = CreateQuiet          -- ^ Redirect @stdin@ to @\/dev\/zero@ and @stdout@ and @stderr@ to @\/dev\/null@.
   | CreateMaxFlags       -- ^ Number of @LXC_CREATE*@ flags.
   deriving (Eq, Ord)
 
@@ -113,30 +113,6 @@ mkContainer name configPath = do
   when (c == nullPtr) $ error "failed to allocate new container"
   return $ Container c
 
--- | Create a container.
-create :: Container         -- ^ Container (with lxcpath, name and a starting configuration set).
-       -> String            -- ^ Template to execute to instantiate the root filesystem and adjust the configuration.
-       -> Maybe String      -- ^ Backing store type to use (if @Nothing@, @dir@ type will be used by default).
-       -> Maybe BDevSpecs   -- ^ Additional parameters for the backing store (for example LVM volume group to use).
-       -> [CreateOption]    -- ^ 'CreateOption' flags. /Note: LXC 1.0 supports only @CreateQuiet@ option./
-       -> [String]          -- ^ Arguments to pass to the template.
-       -> IO Bool           -- ^ @True@ on success. @False@ otherwise.
-create c t bdevtype bdevspecs flags argv = do
-  r <- withMany withCString argv $ \cargv ->
-          withArray0 nullPtr cargv $ \cargv' ->
-             withCString t $ \ct ->
-               maybeWith withCString bdevtype $ \cbdevtype ->
-                 maybeWith withC'bdev_specs bdevspecs $ \cbdevspecs -> do
-                   fn <- peek $ p'lxc_container'create $ getContainer c
-                   mkCreateFn fn
-                     (getContainer c)
-                     ct
-                     cbdevtype
-                     nullPtr
-                     (mkFlags createFlag flags)
-                     cargv'
-  return (r == 1)
-
 -- | Copy a stopped container.
 clone :: Container      -- ^ Original container.
       -> Maybe String   -- ^ New name for the container. If @Nothing@, the same name is used and a new lxcpath MUST be specified.
@@ -166,3 +142,27 @@ clone c newname lxcpath flags bdevtype bdevdata newsize hookargs = do
                       chookargs'
   when (c' == nullPtr) $ error "failed to clone a container"
   return $ Container c'
+
+-- | Create a container.
+create :: Container         -- ^ Container (with lxcpath, name and a starting configuration set).
+       -> String            -- ^ Template to execute to instantiate the root filesystem and adjust the configuration.
+       -> Maybe String      -- ^ Backing store type to use (if @Nothing@, @dir@ type will be used by default).
+       -> Maybe BDevSpecs   -- ^ Additional parameters for the backing store (for example LVM volume group to use).
+       -> [CreateOption]    -- ^ 'CreateOption' flags. /Note: LXC 1.0 supports only @CreateQuiet@ option./
+       -> [String]          -- ^ Arguments to pass to the template.
+       -> IO Bool           -- ^ @True@ on success. @False@ otherwise.
+create c t bdevtype bdevspecs flags argv = do
+  r <- withMany withCString argv $ \cargv ->
+          withArray0 nullPtr cargv $ \cargv' ->
+             withCString t $ \ct ->
+               maybeWith withCString bdevtype $ \cbdevtype ->
+                 maybeWith withC'bdev_specs bdevspecs $ \cbdevspecs -> do
+                   fn <- peek $ p'lxc_container'create $ getContainer c
+                   mkCreateFn fn
+                     (getContainer c)
+                     ct
+                     cbdevtype
+                     nullPtr
+                     (mkFlags createFlag flags)
+                     cargv'
+  return (r == 1)
