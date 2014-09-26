@@ -77,6 +77,10 @@ type ContainerGetInterfacesFn = Ptr C'lxc_container -> IO (Ptr CString)
 foreign import ccall "dynamic"
   mkGetInterfacesFn :: FunPtr ContainerGetInterfacesFn -> ContainerGetInterfacesFn
 
+type ContainerGetIPsFn = Ptr C'lxc_container -> CString -> CString -> CInt -> IO (Ptr CString)
+foreign import ccall "dynamic"
+  mkGetIPsFn :: FunPtr ContainerGetIPsFn -> ContainerGetIPsFn
+
 -- | Options for 'clone' operation.
 data CloneOption
   = CloneKeepName        -- ^ Do not edit the rootfs to change the hostname.
@@ -386,11 +390,34 @@ getKeys c kp = do
 getInterfaces :: Container -> IO [String]
 getInterfaces c = do
   cifs  <- join $ mkFn getContainer mkGetInterfacesFn p'lxc_container'get_interfaces c
-  cifs' <- peekArray0 nullPtr cifs
-  ifs   <- mapM peekCString cifs'
-  mapM_ free cifs'
-  free cifs
-  return ifs
+  if (cifs == nullPtr)
+    then return []
+    else do
+      cifs' <- peekArray0 nullPtr cifs
+      ifs   <- mapM peekCString cifs'
+      mapM_ free cifs'
+      free cifs
+      return ifs
+
+-- | Determine the list of container IP addresses.
+getIPs :: Container     -- ^ Container.
+       -> String        -- ^ Network interface name to consider.
+       -> String        -- ^ Network family (for example @"inet"@, @"inet6"@).
+       -> Word32        -- ^ IPv6 scope id (ignored if family is not "inet6").
+       -> IO [String]   -- ^ A list of network interfaces.
+getIPs c iface fam sid = do
+  fn <- mkFn getContainer mkGetIPsFn p'lxc_container'get_ips c
+  withCString iface $ \ciface ->
+    withCString fam $ \cfam -> do
+      cips  <- fn ciface cfam (fromIntegral sid)
+      if (cips == nullPtr)
+        then return []
+        else do
+          cips' <- peekArray0 nullPtr cips
+          ips   <- mapM peekCString cips'
+          mapM_ free cips'
+          free cips
+          return ips
 
 -- | Clear a configuration item.
 --
