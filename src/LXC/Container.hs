@@ -69,6 +69,10 @@ type ContainerGetItemFn = Ptr C'lxc_container -> CString -> CString -> CInt -> I
 foreign import ccall "dynamic"
   mkGetItemFn :: FunPtr ContainerGetItemFn -> ContainerGetItemFn
 
+type ContainerSetItemFn = Ptr C'lxc_container -> CString -> CString -> IO CBool
+foreign import ccall "dynamic"
+  mkSetItemFn :: FunPtr ContainerSetItemFn -> ContainerSetItemFn
+
 type ContainerGetInterfacesFn = Ptr C'lxc_container -> IO (Ptr CString)
 foreign import ccall "dynamic"
   mkGetInterfacesFn :: FunPtr ContainerGetInterfacesFn -> ContainerGetInterfacesFn
@@ -223,6 +227,16 @@ getItemFn g c s = do
         fn cs cretv sz
         Just <$> peekCString cretv
 
+setItemFn :: Field C'lxc_container (FunPtr ContainerSetItemFn) -> Container -> String -> Maybe String -> IO Bool
+setItemFn g c k v = do
+  fn <- mkFn getContainer mkSetItemFn g c
+  withCString k $ \ck ->
+    maybeWith withCString v $ \cv ->
+      (== 1) <$> fn ck cv
+
+setItemFn' :: Field C'lxc_container (FunPtr ContainerSetItemFn) -> Container -> String -> String -> IO Bool
+setItemFn' g c k v = setItemFn g c k (Just v)
+
 -- | Determine if @\/var\/lib\/lxc\/\$name\/config@ exists.
 --
 -- @True@ if container is defined, else @False@.
@@ -309,6 +323,13 @@ configFileName (Container c) = do
       s <- peekCString cs
       free cs
       return $ Just s
+
+-- | Set a key/value configuration option.
+setConfigItem :: Container  -- ^ Container.
+              -> String     -- ^ Name of option to set.
+              -> String     -- ^ Value to set.
+              -> IO Bool    -- ^ @True@ on success, else @False@.
+setConfigItem = setItemFn' p'lxc_container'set_config_item
 
 -- | Delete the container.
 --
@@ -414,6 +435,13 @@ getCGroupItem :: Container          -- ^ Container.
               -> IO (Maybe String)  -- ^ @cgroup@ subsystem value or @Nothing@ on error.
 getCGroupItem = getItemFn p'lxc_container'get_cgroup_item
 
+-- | Set the specified cgroup subsystem value for the container.
+setCGroupItem :: Container  -- ^ Container.
+              -> String     -- ^ @cgroup@ subsystem to consider.
+              -> String     -- ^ Value to set.
+              -> IO Bool    -- ^ @True@ on success, else @False@.
+setCGroupItem = setItemFn' p'lxc_container'set_cgroup_item
+
 -- | Clear a configuration item.
 --
 -- Analog of 'setConfigItem'.
@@ -458,12 +486,44 @@ clone c newname lxcpath flags bdevtype bdevdata newsize hookargs = do
   when (c' == nullPtr) $ error "failed to clone a container"
   return $ Container c'
 
+-- | Create a new container based on a snapshot.
+--
+-- The restored container will be a copy (not snapshot) of the snapshot,
+-- and restored in the lxcpath of the original container.
+--
+-- * /WARNING:/ If new name is the same as the current container
+-- name, the container will be destroyed. However, this will
+-- fail if the snapshot is overlay-based, since the snapshots
+-- will pin the original container.
+-- * /NOTE:/ As an example, if the container exists as @\/var\/lib\/lxc\/c1@, snapname might be @"snap0"@
+-- (representing @\/var\/lib\/lxc\/c1\/snaps\/snap0@). If new name is @c2@,
+-- then @snap0@ will be copied to @\/var\/lib\/lxc\/c2@.
+snapshotRestore :: Container  -- ^ Container.
+                -> String     -- ^ Name of snapshot.
+                -> String     -- ^ Name to be used for the restored snapshot.
+                -> IO Bool    -- ^ @True@ on success, else @False@.
+snapshotRestore = setItemFn' p'lxc_container'snapshot_restore
+
 -- | Determine if the caller may control the container.
 --
 -- @False@ if there is a control socket for the container monitor
 -- and the caller may not access it, otherwise returns @True@.
 mayControl :: Container -> IO Bool
 mayControl = boolFn p'lxc_container'may_control
+
+-- | Add specified device to the container.
+addDeviceNode :: Container      -- ^ Container.
+              -> FilePath       -- ^ Full path of the device.
+              -> Maybe FilePath -- ^ Alternate path in the container (or @Nothing@ to use source path).
+              -> IO Bool        -- ^ @True@ on success, else @False@.
+addDeviceNode = setItemFn p'lxc_container'add_device_node
+
+-- | Remove specified device from the container.
+removeDeviceNode :: Container      -- ^ Container.
+                 -> FilePath       -- ^ Full path of the device.
+                 -> Maybe FilePath -- ^ Alternate path in the container (or @Nothing@ to use source path).
+                 -> IO Bool        -- ^ @True@ on success, else @False@.
+removeDeviceNode = setItemFn p'lxc_container'remove_device_node
 
 -- | Create a container.
 create :: Container         -- ^ Container (with lxcpath, name and a starting configuration set).
