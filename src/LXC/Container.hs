@@ -251,18 +251,31 @@ saveConfig :: Container   -- ^ Container.
            -> IO Bool     -- ^ @True@ on success, else @False@.
 saveConfig c s = stringBoolFn p'lxc_container'save_config c (Just s)
 
+-- | Rename a container.
+rename :: Container   -- ^ Container.
+       -> String      -- ^ New name to be used for the container.
+       -> IO Bool     -- ^ @True@ on success, else @False@.
+rename c s = stringBoolFn p'lxc_container'rename c (Just s)
+
 -- | Request the container reboot by sending it @SIGINT@.
 --
 --  @True@ if reboot request successful, else @False@.
 reboot :: Container -> IO Bool
 reboot = boolFn p'lxc_container'reboot
 
--- | Determine if the caller may control the container.
+-- | Clear a configuration item.
 --
--- @False@ if there is a control socket for the container monitor
--- and the caller may not access it, otherwise returns @True@.
-mayControl :: Container -> IO Bool
-mayControl = boolFn p'lxc_container'may_control
+-- Analog of 'setConfigItem'.
+clearConfigItem :: Container  -- ^ Container.
+                -> String     -- ^ Name of option to clear.
+                -> IO Bool    -- ^ @True@ on success, else @False@.
+clearConfigItem c s = stringBoolFn p'lxc_container'clear_config_item c (Just s)
+
+-- | Set the full path to the containers configuration file.
+setConfigPath :: Container  -- ^ Container.
+              -> FilePath   -- ^ Full path to configuration file.
+              -> IO Bool    -- ^ @True@ on success, else @False@.
+setConfigPath c s = stringBoolFn p'lxc_container'set_config_path c (Just s)
 
 -- | Copy a stopped container.
 clone :: Container      -- ^ Original container.
@@ -293,6 +306,13 @@ clone c newname lxcpath flags bdevtype bdevdata newsize hookargs = do
                       chookargs'
   when (c' == nullPtr) $ error "failed to clone a container"
   return $ Container c'
+
+-- | Determine if the caller may control the container.
+--
+-- @False@ if there is a control socket for the container monitor
+-- and the caller may not access it, otherwise returns @True@.
+mayControl :: Container -> IO Bool
+mayControl = boolFn p'lxc_container'may_control
 
 -- | Create a container.
 create :: Container         -- ^ Container (with lxcpath, name and a starting configuration set).
