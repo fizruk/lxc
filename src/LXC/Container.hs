@@ -164,7 +164,7 @@ isDefined = boolFn p'lxc_container'is_defined
 
 -- | Determine if container is running.
 --
--- @True on success, else @False@.
+-- @True@ on success, else @False@.
 isRunning :: Container -> IO Bool
 isRunning = boolFn p'lxc_container'is_running
 
@@ -174,25 +174,25 @@ state = fmap parseState . stringFn p'lxc_container'state
 
 -- | Freeze running container.
 --
--- @True on success, else @False@.
+-- @True@ on success, else @False@.
 freeze :: Container -> IO Bool
 freeze = boolFn p'lxc_container'freeze
 
 -- | Thaw a frozen container.
 --
--- @True on success, else @False@.
+-- @True@ on success, else @False@.
 unfreeze :: Container -> IO Bool
 unfreeze = boolFn p'lxc_container'unfreeze
 
 -- | Stop the container.
 --
--- @True on success, else @False@.
+-- @True@ on success, else @False@.
 stop :: Container -> IO Bool
 stop = boolFn p'lxc_container'stop
 
 -- | Delete the container.
 --
--- @True on success, else @False@.
+-- @True@ on success, else @False@.
 --
 -- * NOTE: Container must be stopped and have no dependent snapshots.
 destroy :: Container -> IO Bool
