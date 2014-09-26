@@ -13,7 +13,7 @@ import Data.Word
 
 import Foreign.C.Types
 import Foreign.C.String
-import Foreign.Marshal.Alloc (free)
+import Foreign.Marshal.Alloc
 import Foreign.Marshal.Array (withArray0)
 import Foreign.Marshal.Utils (with, maybeWith, withMany)
 import Foreign.Ptr (nullPtr, Ptr, FunPtr)
@@ -60,6 +60,18 @@ foreign import ccall "dynamic"
 type ContainerClearConfigFn = Ptr C'lxc_container -> IO ()
 foreign import ccall "dynamic"
   mkClearConfigFn :: FunPtr ContainerClearConfigFn -> ContainerClearConfigFn
+
+type ContainerGetRunningConfigItemFn = Ptr C'lxc_container -> CString -> IO CString
+foreign import ccall "dynamic"
+  mkGetRunningConfigItemFn :: FunPtr ContainerGetRunningConfigItemFn -> ContainerGetRunningConfigItemFn
+
+type ContainerGetConfigItemFn = Ptr C'lxc_container -> CString -> CString -> CInt -> IO CInt
+foreign import ccall "dynamic"
+  mkGetConfigItemFn :: FunPtr ContainerGetConfigItemFn -> ContainerGetConfigItemFn
+
+type ContainerGetKeysFn = Ptr C'lxc_container -> CString -> CString -> CInt -> IO CInt
+foreign import ccall "dynamic"
+  mkGetKeysFn :: FunPtr ContainerGetKeysFn -> ContainerGetKeysFn
 
 -- | Options for 'clone' operation.
 data CloneOption
@@ -318,6 +330,53 @@ shutdown c n = do
 -- | Completely clear the containers in-memory configuration.
 clearConfig :: Container -> IO ()
 clearConfig = join . mkFn getContainer mkClearConfigFn p'lxc_container'clear_config
+
+-- | Retrieve the value of a config item.
+getConfigItem :: Container          -- ^ Container.
+              -> String             -- ^ Name of option to get.
+              -> IO (Maybe String)  -- ^ The item or @Nothing@ on error.
+getConfigItem c k = do
+  fn <- mkFn getContainer mkGetConfigItemFn p'lxc_container'get_config_item c
+  withCString k $ \ck -> do
+    -- call with NULL for retv to determine size of a buffer we need to allocate
+    sz <- fn ck nullPtr 0
+    if (sz < 0)
+      then return Nothing
+      else allocaBytes (fromIntegral sz) $ \cretv -> do
+        -- we call fn second time to actually get item into cretv buffer
+        fn ck cretv sz
+        Just <$> peekCString cretv
+
+-- | Retrieve the value of a config item from running container.
+getRunningConfigItem :: Container           -- ^ Container.
+                     -> String              -- ^ Name of option to get.
+                     -> IO (Maybe String)   -- ^ The item or @Nothing@ on error.
+getRunningConfigItem c k = do
+  fn <- mkFn getContainer mkGetRunningConfigItemFn p'lxc_container'get_running_config_item c
+  withCString k $ \ck -> do
+    cv <- fn ck
+    if (cv == nullPtr)
+      then return Nothing
+      else do
+        v <- peekCString cv
+        free cv
+        return (Just v)
+
+-- | Retrieve a list of config item keys given a key prefix.
+getKeys :: Container    -- ^ Container.
+        -> String       -- ^ Key prefix.
+        -> IO [String]  -- ^ List of keys.
+getKeys c kp = do
+  fn <- mkFn getContainer mkGetKeysFn p'lxc_container'get_keys c
+  withCString kp $ \ckp -> do
+    -- call with NULL for retv to determine size of a buffer we need to allocate
+    sz <- fn ckp nullPtr 0
+    if (sz < 0)
+      then return []
+      else allocaBytes (fromIntegral sz) $ \cretv -> do
+        -- we call fn second time to actually get item into cretv buffer
+        fn ckp cretv sz
+        lines <$> peekCString cretv
 
 -- | Clear a configuration item.
 --
