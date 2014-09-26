@@ -12,7 +12,7 @@ import Data.Maybe
 import Data.Word
 
 import Foreign.C.Types
-import Foreign.C.String (withCString, newCString, CString)
+import Foreign.C.String
 import Foreign.Marshal.Alloc (free)
 import Foreign.Marshal.Array (withArray0)
 import Foreign.Marshal.Utils (with, maybeWith, withMany)
@@ -30,6 +30,10 @@ foreign import ccall "dynamic"
 type ContainerBoolFn = Ptr C'lxc_container -> IO CBool
 foreign import ccall "dynamic"
   mkBoolFn :: FunPtr ContainerBoolFn -> ContainerBoolFn
+
+type ContainerStringFn = Ptr C'lxc_container -> IO CString
+foreign import ccall "dynamic"
+  mkStringFn :: FunPtr ContainerStringFn -> ContainerStringFn
 
 -- | Options for 'clone' operation.
 data CloneOption
@@ -69,6 +73,29 @@ mkFlags f = foldl' (.|.) 0 . map f
 newtype Container = Container {
   getContainer :: Ptr C'lxc_container   -- ^ A pointer to @lxc_container@ structure.
 }
+
+data ContainerState
+  = ContainerStopped
+  | ContainerStarting
+  | ContainerRunning
+  | ContainerStopping
+  | ContainerAborting
+  | ContainerFreezing
+  | ContainerFrozen
+  | ContainerThawed
+  | ContainerUnknownState
+  deriving (Eq, Show)
+
+parseState :: String -> ContainerState
+parseState "STOPPED"  = ContainerStopped
+parseState "STARTING" = ContainerStarting
+parseState "RUNNING"  = ContainerRunning
+parseState "STOPPING" = ContainerStopping
+parseState "ABORTING" = ContainerAborting
+parseState "FREEZING" = ContainerFreezing
+parseState "FROZEN"   = ContainerFrozen
+parseState "THAWED"   = ContainerThawed
+parseState _          = ContainerUnknownState
 
 -- | Specifications for how to create a new backing store.
 data BDevSpecs = BDevSpecs
@@ -124,6 +151,11 @@ boolFn f (Container c) = do
   fn <- peek (f c)
   (== 1) <$> mkBoolFn fn c
 
+stringFn :: Field C'lxc_container (FunPtr ContainerStringFn) -> Container -> IO String
+stringFn f (Container c) = do
+  fn <- peek (f c)
+  mkStringFn fn c >>= peekCString
+
 -- | Determine if @\/var\/lib\/lxc\/\$name\/config@ exists.
 --
 -- @True@ if container is defined, else @False@.
@@ -135,6 +167,10 @@ isDefined = boolFn p'lxc_container'is_defined
 -- @True on success, else @False@.
 isRunning :: Container -> IO Bool
 isRunning = boolFn p'lxc_container'is_running
+
+-- | Determine state of container.
+state :: Container -> IO ContainerState
+state = fmap parseState . stringFn p'lxc_container'state
 
 -- | Freeze running container.
 --
