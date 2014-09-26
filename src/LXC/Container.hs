@@ -167,6 +167,12 @@ boolFn g c = do
   fn <- mkFn getContainer mkBoolFn g c
   (== 1) <$> fn
 
+stringBoolFn :: Field C'lxc_container (FunPtr ContainerStringBoolFn) -> Container -> Maybe String -> IO Bool
+stringBoolFn g c s = do
+  fn <- mkFn getContainer mkStringBoolFn g c
+  maybeWith withCString s $ \cs ->
+    (== 1) <$> fn cs
+
 -- | Determine if @\/var\/lib\/lxc\/\$name\/config@ exists.
 --
 -- @True@ if container is defined, else @False@.
@@ -208,13 +214,10 @@ initPID c = do
     else return (Just pid)
 
 -- | Load the specified configuration for the container.
-loadConfig :: Container     -- ^ Container.
-           -> Maybe String  -- ^ Full path to alternate configuration file, or @Nothing@ to use the default configuration file.
-           -> IO Bool       -- ^ @True@ on success, else @False@.
-loadConfig c altFile = do
-  fn <- mkFn getContainer mkStringBoolFn p'lxc_container'load_config c
-  maybeWith withCString altFile $ \caltFile ->
-    (== 1) <$> fn caltFile
+loadConfig :: Container       -- ^ Container.
+           -> Maybe FilePath  -- ^ Full path to alternate configuration file, or @Nothing@ to use the default configuration file.
+           -> IO Bool         -- ^ @True@ on success, else @False@.
+loadConfig = stringBoolFn p'lxc_container'load_config
 
 -- | Stop the container.
 --
@@ -241,6 +244,12 @@ configFileName (Container c) = do
 -- * NOTE: Container must be stopped and have no dependent snapshots.
 destroy :: Container -> IO Bool
 destroy = boolFn p'lxc_container'destroy
+
+-- | Save configuaration to a file.
+saveConfig :: Container   -- ^ Container.
+           -> FilePath    -- ^ Full path to file to save configuration in.
+           -> IO Bool     -- ^ @True@ on success, else @False@.
+saveConfig c s = stringBoolFn p'lxc_container'save_config c (Just s)
 
 -- | Request the container reboot by sending it @SIGINT@.
 --
