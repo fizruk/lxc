@@ -57,6 +57,10 @@ type ContainerShutdownFn = Ptr C'lxc_container -> CInt -> IO CBool
 foreign import ccall "dynamic"
   mkShutdownFn :: FunPtr ContainerShutdownFn -> ContainerShutdownFn
 
+type ContainerClearConfigFn = Ptr C'lxc_container -> IO ()
+foreign import ccall "dynamic"
+  mkClearConfigFn :: FunPtr ContainerClearConfigFn -> ContainerClearConfigFn
+
 -- | Options for 'clone' operation.
 data CloneOption
   = CloneKeepName        -- ^ Do not edit the rootfs to change the hostname.
@@ -310,6 +314,10 @@ shutdown :: Container   -- ^ Container.
 shutdown c n = do
   fn <- mkFn getContainer mkShutdownFn p'lxc_container'shutdown c
   (== 1) <$> fn (fromIntegral n)
+
+-- | Completely clear the containers in-memory configuration.
+clearConfig :: Container -> IO ()
+clearConfig = join . mkFn getContainer mkClearConfigFn p'lxc_container'clear_config
 
 -- | Clear a configuration item.
 --
