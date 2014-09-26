@@ -53,6 +53,10 @@ type ContainerStartFn = Ptr C'lxc_container -> CInt -> Ptr CString -> IO CBool
 foreign import ccall "dynamic"
   mkStartFn :: FunPtr ContainerStartFn -> ContainerStartFn
 
+type ContainerShutdownFn = Ptr C'lxc_container -> CInt -> IO CBool
+foreign import ccall "dynamic"
+  mkShutdownFn :: FunPtr ContainerShutdownFn -> ContainerShutdownFn
+
 -- | Options for 'clone' operation.
 data CloneOption
   = CloneKeepName        -- ^ Do not edit the rootfs to change the hostname.
@@ -298,6 +302,14 @@ rename c s = stringBoolFn p'lxc_container'rename c (Just s)
 --  @True@ if reboot request successful, else @False@.
 reboot :: Container -> IO Bool
 reboot = boolFn p'lxc_container'reboot
+
+-- | Request the container shutdown by sending it @SIGPWR@.
+shutdown :: Container   -- ^ Container.
+         -> Int         -- ^ Seconds to wait before returning false. (@-1@ to wait forever, @0@ to avoid waiting).
+         -> IO Bool     -- ^ @True@ if the container was shutdown successfully, else @False@.
+shutdown c n = do
+  fn <- mkFn getContainer mkShutdownFn p'lxc_container'shutdown c
+  (== 1) <$> fn (fromIntegral n)
 
 -- | Clear a configuration item.
 --
