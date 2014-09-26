@@ -45,6 +45,10 @@ type ContainerStringBoolFn = Ptr C'lxc_container -> CString -> IO CBool
 foreign import ccall "dynamic"
   mkStringBoolFn :: FunPtr ContainerStringBoolFn -> ContainerStringBoolFn
 
+type ContainerBoolBoolFn = Ptr C'lxc_container -> CBool -> IO CBool
+foreign import ccall "dynamic"
+  mkBoolBoolFn :: FunPtr ContainerBoolBoolFn -> ContainerBoolBoolFn
+
 -- | Options for 'clone' operation.
 data CloneOption
   = CloneKeepName        -- ^ Do not edit the rootfs to change the hostname.
@@ -173,6 +177,11 @@ stringBoolFn g c s = do
   maybeWith withCString s $ \cs ->
     (== 1) <$> fn cs
 
+boolBoolFn :: Field C'lxc_container (FunPtr ContainerBoolBoolFn) -> Container -> Bool -> IO Bool
+boolBoolFn g c b = do
+  fn <- mkFn getContainer mkBoolBoolFn g c
+  (== 1) <$> fn (if b then 1 else 0)
+
 -- | Determine if @\/var\/lib\/lxc\/\$name\/config@ exists.
 --
 -- @True@ if container is defined, else @False@.
@@ -224,6 +233,18 @@ loadConfig = stringBoolFn p'lxc_container'load_config
 -- @True@ on success, else @False@.
 stop :: Container -> IO Bool
 stop = boolFn p'lxc_container'stop
+
+-- | Determine if the container wants to run disconnected from the terminal.
+wantDaemonize :: Container  -- ^ Container.
+              -> Bool       -- ^ Value for the daemonize bit.
+              -> IO Bool    -- ^ @True@ if container wants to be daemonised, else @False@.
+wantDaemonize = boolBoolFn p'lxc_container'want_daemonize
+
+-- | Determine whether container wishes all file descriptors to be closed on startup.
+wantCloseAllFDs :: Container  -- ^ Container.
+                -> Bool       -- ^ Value for the @close_all_fds@ bit.
+                -> IO Bool    -- ^ @True@ if container wants to be daemonised, else @False@.
+wantCloseAllFDs = boolBoolFn p'lxc_container'want_close_all_fds
 
 -- | Return current config file name.
 configFileName :: Container -> IO (Maybe FilePath)
