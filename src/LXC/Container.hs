@@ -81,6 +81,10 @@ type ContainerGetIPsFn = Ptr C'lxc_container -> CString -> CString -> CInt -> IO
 foreign import ccall "dynamic"
   mkGetIPsFn :: FunPtr ContainerGetIPsFn -> ContainerGetIPsFn
 
+type ContainerWaitFn = Ptr C'lxc_container -> CString -> CInt -> IO CBool
+foreign import ccall "dynamic"
+  mkWaitFn :: FunPtr ContainerWaitFn -> ContainerWaitFn
+
 -- | Options for 'clone' operation.
 data CloneOption
   = CloneKeepName        -- ^ Do not edit the rootfs to change the hostname.
@@ -142,6 +146,17 @@ parseState "FREEZING" = ContainerFreezing
 parseState "FROZEN"   = ContainerFrozen
 parseState "THAWED"   = ContainerThawed
 parseState _          = ContainerUnknownState
+
+printState :: ContainerState -> String
+printState ContainerStopped       = "STOPPED"
+printState ContainerStarting      = "STARTING"
+printState ContainerRunning       = "RUNNING"
+printState ContainerStopping      = "STOPPING"
+printState ContainerAborting      = "ABORTING"
+printState ContainerFreezing      = "FREEZING"
+printState ContainerFrozen        = "FROZEN"
+printState ContainerThawed        = "THAWED"
+printState ContainerUnknownState  = "UNKNOWN"
 
 -- | Specifications for how to create a new backing store.
 data BDevSpecs = BDevSpecs
@@ -323,6 +338,19 @@ configFileName (Container c) = do
       s <- peekCString cs
       free cs
       return $ Just s
+
+-- | Wait for container to reach a particular state.
+--
+-- * A timeout of @-1@ means wait forever.
+-- A timeout @0@ means do not wait.
+wait :: Container       -- ^ Container.
+     -> ContainerState  -- ^ State to wait for.
+     -> Int             -- ^ Timeout in seconds.
+     -> IO Bool         -- ^ @True@ if state reached within timeout, else @False@.
+wait c s t = do
+  fn <- mkFn getContainer mkWaitFn p'lxc_container'wait c
+  withCString (printState s) $ \cs ->
+    (== 1) <$> fn cs (fromIntegral t)
 
 -- | Set a key/value configuration option.
 setConfigItem :: Container  -- ^ Container.
