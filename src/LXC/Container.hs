@@ -41,6 +41,10 @@ type ContainerProcessIDFn = Ptr C'lxc_container -> IO C'pid_t
 foreign import ccall "dynamic"
   mkProcessIDFn :: FunPtr ContainerProcessIDFn -> ContainerProcessIDFn
 
+type ContainerStringBoolFn = Ptr C'lxc_container -> CString -> IO CBool
+foreign import ccall "dynamic"
+  mkStringBoolFn :: FunPtr ContainerStringBoolFn -> ContainerStringBoolFn
+
 -- | Options for 'clone' operation.
 data CloneOption
   = CloneKeepName        -- ^ Do not edit the rootfs to change the hostname.
@@ -202,6 +206,15 @@ initPID c = do
   if (pid < 0)
     then return Nothing
     else return (Just pid)
+
+-- | Load the specified configuration for the container.
+loadConfig :: Container     -- ^ Container.
+           -> Maybe String  -- ^ Full path to alternate configuration file, or @Nothing@ to use the default configuration file.
+           -> IO Bool       -- ^ @True@ on success, else @False@.
+loadConfig c altFile = do
+  fn <- mkFn getContainer mkStringBoolFn p'lxc_container'load_config c
+  maybeWith withCString altFile $ \caltFile ->
+    (== 1) <$> fn caltFile
 
 -- | Stop the container.
 --
