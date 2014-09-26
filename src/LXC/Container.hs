@@ -65,13 +65,9 @@ type ContainerGetRunningConfigItemFn = Ptr C'lxc_container -> CString -> IO CStr
 foreign import ccall "dynamic"
   mkGetRunningConfigItemFn :: FunPtr ContainerGetRunningConfigItemFn -> ContainerGetRunningConfigItemFn
 
-type ContainerGetConfigItemFn = Ptr C'lxc_container -> CString -> CString -> CInt -> IO CInt
+type ContainerGetItemFn = Ptr C'lxc_container -> CString -> CString -> CInt -> IO CInt
 foreign import ccall "dynamic"
-  mkGetConfigItemFn :: FunPtr ContainerGetConfigItemFn -> ContainerGetConfigItemFn
-
-type ContainerGetKeysFn = Ptr C'lxc_container -> CString -> CString -> CInt -> IO CInt
-foreign import ccall "dynamic"
-  mkGetKeysFn :: FunPtr ContainerGetKeysFn -> ContainerGetKeysFn
+  mkGetItemFn :: FunPtr ContainerGetItemFn -> ContainerGetItemFn
 
 type ContainerGetInterfacesFn = Ptr C'lxc_container -> IO (Ptr CString)
 foreign import ccall "dynamic"
@@ -214,6 +210,19 @@ boolBoolFn g c b = do
   fn <- mkFn getContainer mkBoolBoolFn g c
   (== 1) <$> fn (if b then 1 else 0)
 
+getItemFn :: Field C'lxc_container (FunPtr ContainerGetItemFn) -> Container -> String -> IO (Maybe String)
+getItemFn g c s = do
+  fn <- mkFn getContainer mkGetItemFn g c
+  withCString s $ \cs -> do
+    -- call with NULL for retv to determine size of a buffer we need to allocate
+    sz <- fn cs nullPtr 0
+    if (sz < 0)
+      then return Nothing
+      else allocaBytes (fromIntegral sz) $ \cretv -> do
+        -- we call fn second time to actually get item into cretv buffer
+        fn cs cretv sz
+        Just <$> peekCString cretv
+
 -- | Determine if @\/var\/lib\/lxc\/\$name\/config@ exists.
 --
 -- @True@ if container is defined, else @False@.
@@ -343,17 +352,7 @@ clearConfig = join . mkFn getContainer mkClearConfigFn p'lxc_container'clear_con
 getConfigItem :: Container          -- ^ Container.
               -> String             -- ^ Name of option to get.
               -> IO (Maybe String)  -- ^ The item or @Nothing@ on error.
-getConfigItem c k = do
-  fn <- mkFn getContainer mkGetConfigItemFn p'lxc_container'get_config_item c
-  withCString k $ \ck -> do
-    -- call with NULL for retv to determine size of a buffer we need to allocate
-    sz <- fn ck nullPtr 0
-    if (sz < 0)
-      then return Nothing
-      else allocaBytes (fromIntegral sz) $ \cretv -> do
-        -- we call fn second time to actually get item into cretv buffer
-        fn ck cretv sz
-        Just <$> peekCString cretv
+getConfigItem = getItemFn p'lxc_container'get_config_item
 
 -- | Retrieve the value of a config item from running container.
 getRunningConfigItem :: Container           -- ^ Container.
@@ -374,17 +373,7 @@ getRunningConfigItem c k = do
 getKeys :: Container    -- ^ Container.
         -> String       -- ^ Key prefix.
         -> IO [String]  -- ^ List of keys.
-getKeys c kp = do
-  fn <- mkFn getContainer mkGetKeysFn p'lxc_container'get_keys c
-  withCString kp $ \ckp -> do
-    -- call with NULL for retv to determine size of a buffer we need to allocate
-    sz <- fn ckp nullPtr 0
-    if (sz < 0)
-      then return []
-      else allocaBytes (fromIntegral sz) $ \cretv -> do
-        -- we call fn second time to actually get item into cretv buffer
-        fn ckp cretv sz
-        lines <$> peekCString cretv
+getKeys c kp = concatMap lines . maybeToList <$> getItemFn p'lxc_container'get_keys c kp
 
 -- | Obtain a list of network interfaces.
 getInterfaces :: Container -> IO [String]
@@ -418,6 +407,12 @@ getIPs c iface fam sid = do
           mapM_ free cips'
           free cips
           return ips
+
+-- | Retrieve the specified cgroup subsystem value for the container.
+getCGroupItem :: Container          -- ^ Container.
+              -> String             -- ^ @cgroup@ subsystem to retrieve.
+              -> IO (Maybe String)  -- ^ @cgroup@ subsystem value or @Nothing@ on error.
+getCGroupItem = getItemFn p'lxc_container'get_cgroup_item
 
 -- | Clear a configuration item.
 --
