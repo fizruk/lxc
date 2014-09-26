@@ -49,6 +49,10 @@ type ContainerBoolBoolFn = Ptr C'lxc_container -> CBool -> IO CBool
 foreign import ccall "dynamic"
   mkBoolBoolFn :: FunPtr ContainerBoolBoolFn -> ContainerBoolBoolFn
 
+type ContainerStartFn = Ptr C'lxc_container -> CInt -> Ptr CString -> IO CBool
+foreign import ccall "dynamic"
+  mkStartFn :: FunPtr ContainerStartFn -> ContainerStartFn
+
 -- | Options for 'clone' operation.
 data CloneOption
   = CloneKeepName        -- ^ Do not edit the rootfs to change the hostname.
@@ -227,6 +231,17 @@ loadConfig :: Container       -- ^ Container.
            -> Maybe FilePath  -- ^ Full path to alternate configuration file, or @Nothing@ to use the default configuration file.
            -> IO Bool         -- ^ @True@ on success, else @False@.
 loadConfig = stringBoolFn p'lxc_container'load_config
+
+-- | Start the container.
+start :: Container  -- ^ Container.
+      -> Int        -- ^ Use @lxcinit@ rather than @/sbin/init@.
+      -> [String]   -- ^ Array of arguments to pass to init.
+      -> IO Bool    -- ^ @True@ on success, else @False@.
+start c n argv = do
+  fn <- mkFn getContainer mkStartFn p'lxc_container'start c
+  withMany withCString argv $ \cargv ->
+    withArray0 nullPtr cargv $ \cargv' ->
+      (== 1) <$> fn (fromIntegral n) cargv'
 
 -- | Stop the container.
 --
