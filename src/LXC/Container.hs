@@ -85,6 +85,10 @@ type ContainerWaitFn = Ptr C'lxc_container -> CString -> CInt -> IO CBool
 foreign import ccall "dynamic"
   mkWaitFn :: FunPtr ContainerWaitFn -> ContainerWaitFn
 
+type ContainerSnapshotFn = Ptr C'lxc_container -> CString -> IO CInt
+foreign import ccall "dynamic"
+  mkSnapshotFn :: FunPtr ContainerSnapshotFn -> ContainerSnapshotFn
+
 -- | Options for 'clone' operation.
 data CloneOption
   = CloneKeepName        -- ^ Do not edit the rootfs to change the hostname.
@@ -529,6 +533,23 @@ clone c newname lxcpath flags bdevtype bdevdata newsize hookargs = do
                       chookargs'
   when (c' == nullPtr) $ error "failed to clone a container"
   return $ Container c'
+
+-- | Create a container snapshot.
+--
+-- Assuming default paths, snapshots will be created as
+-- @\/var\/lib\/lxc\/\<c\>\/snaps\/snap\<n\>@
+-- where @\<c\>@ represents the container name and @\<n\>@
+-- represents the zero-based snapshot number.
+snapshot :: Container
+         -> FilePath
+         -> IO (Maybe Int)
+snapshot c path = do
+  fn <- mkFn getContainer mkSnapshotFn p'lxc_container'snapshot c
+  withCString path $ \cpath -> do
+    n <- fn cpath
+    if (n == -1)
+      then return Nothing
+      else return (Just $ fromIntegral n)
 
 -- | Create a new container based on a snapshot.
 --
