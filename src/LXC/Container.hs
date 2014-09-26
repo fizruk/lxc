@@ -19,6 +19,8 @@ import Foreign.Marshal.Utils (with, maybeWith, withMany)
 import Foreign.Ptr (nullPtr, Ptr, FunPtr)
 import Foreign.Storable
 
+import System.Posix.Types (ProcessID)
+
 type ContainerCreateFn = Ptr C'lxc_container -> CString -> CString -> Ptr C'bdev_specs -> CInt -> Ptr CString -> IO CBool
 foreign import ccall "dynamic"
   mkCreateFn :: FunPtr ContainerCreateFn -> ContainerCreateFn
@@ -34,6 +36,10 @@ foreign import ccall "dynamic"
 type ContainerStringFn = Ptr C'lxc_container -> IO CString
 foreign import ccall "dynamic"
   mkStringFn :: FunPtr ContainerStringFn -> ContainerStringFn
+
+type ContainerProcessIDFn = Ptr C'lxc_container -> IO C'pid_t
+foreign import ccall "dynamic"
+  mkProcessIDFn :: FunPtr ContainerProcessIDFn -> ContainerProcessIDFn
 
 -- | Options for 'clone' operation.
 data CloneOption
@@ -187,6 +193,15 @@ freeze = boolFn p'lxc_container'freeze
 -- @True@ on success, else @False@.
 unfreeze :: Container -> IO Bool
 unfreeze = boolFn p'lxc_container'unfreeze
+
+-- | Determine process ID of the containers init process.
+initPID :: Container -> IO (Maybe ProcessID)
+initPID c = do
+  fn <- mkFn getContainer mkProcessIDFn p'lxc_container'init_pid c
+  pid <- fromIntegral <$> fn
+  if (pid < 0)
+    then return Nothing
+    else return (Just pid)
 
 -- | Stop the container.
 --
