@@ -14,7 +14,7 @@ import Data.Word
 import Foreign.C.Types
 import Foreign.C.String
 import Foreign.Marshal.Alloc
-import Foreign.Marshal.Array (withArray0)
+import Foreign.Marshal.Array
 import Foreign.Marshal.Utils (with, maybeWith, withMany)
 import Foreign.Ptr (nullPtr, Ptr, FunPtr)
 import Foreign.Storable
@@ -72,6 +72,10 @@ foreign import ccall "dynamic"
 type ContainerGetKeysFn = Ptr C'lxc_container -> CString -> CString -> CInt -> IO CInt
 foreign import ccall "dynamic"
   mkGetKeysFn :: FunPtr ContainerGetKeysFn -> ContainerGetKeysFn
+
+type ContainerGetInterfacesFn = Ptr C'lxc_container -> IO (Ptr CString)
+foreign import ccall "dynamic"
+  mkGetInterfacesFn :: FunPtr ContainerGetInterfacesFn -> ContainerGetInterfacesFn
 
 -- | Options for 'clone' operation.
 data CloneOption
@@ -377,6 +381,16 @@ getKeys c kp = do
         -- we call fn second time to actually get item into cretv buffer
         fn ckp cretv sz
         lines <$> peekCString cretv
+
+-- | Obtain a list of network interfaces.
+getInterfaces :: Container -> IO [String]
+getInterfaces c = do
+  cifs  <- join $ mkFn getContainer mkGetInterfacesFn p'lxc_container'get_interfaces c
+  cifs' <- peekArray0 nullPtr cifs
+  ifs   <- mapM peekCString cifs'
+  mapM_ free cifs'
+  free cifs
+  return ifs
 
 -- | Clear a configuration item.
 --
