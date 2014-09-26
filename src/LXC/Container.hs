@@ -27,6 +27,10 @@ type ContainerCloneFn = Ptr C'lxc_container -> CString -> CString -> CInt -> CSt
 foreign import ccall "dynamic"
   mkCloneFn :: FunPtr ContainerCloneFn -> ContainerCloneFn
 
+type ContainerBoolFn = Ptr C'lxc_container -> IO CBool
+foreign import ccall "dynamic"
+  mkBoolFn :: FunPtr ContainerBoolFn -> ContainerBoolFn
+
 -- | Options for 'clone' operation.
 data CloneOption
   = CloneKeepName        -- ^ Do not edit the rootfs to change the hostname.
@@ -112,6 +116,64 @@ mkContainer name configPath = do
             Just s  -> withCString s $ c'lxc_container_new cname
   when (c == nullPtr) $ error "failed to allocate new container"
   return $ Container c
+
+type Field s a = Ptr s -> Ptr a
+
+boolFn :: Field C'lxc_container (FunPtr ContainerBoolFn) -> Container -> IO Bool
+boolFn f (Container c) = do
+  fn <- peek (f c)
+  (== 1) <$> mkBoolFn fn c
+
+-- | Determine if @\/var\/lib\/lxc\/\$name\/config@ exists.
+--
+-- @True@ if container is defined, else @False@.
+isDefined :: Container -> IO Bool
+isDefined = boolFn p'lxc_container'is_defined
+
+-- | Determine if container is running.
+--
+-- @True on success, else @False@.
+isRunning :: Container -> IO Bool
+isRunning = boolFn p'lxc_container'is_running
+
+-- | Freeze running container.
+--
+-- @True on success, else @False@.
+freeze :: Container -> IO Bool
+freeze = boolFn p'lxc_container'freeze
+
+-- | Thaw a frozen container.
+--
+-- @True on success, else @False@.
+unfreeze :: Container -> IO Bool
+unfreeze = boolFn p'lxc_container'unfreeze
+
+-- | Stop the container.
+--
+-- @True on success, else @False@.
+stop :: Container -> IO Bool
+stop = boolFn p'lxc_container'stop
+
+-- | Delete the container.
+--
+-- @True on success, else @False@.
+--
+-- * NOTE: Container must be stopped and have no dependent snapshots.
+destroy :: Container -> IO Bool
+destroy = boolFn p'lxc_container'destroy
+
+-- | Request the container reboot by sending it @SIGINT@.
+--
+--  @True@ if reboot request successful, else @False@.
+reboot :: Container -> IO Bool
+reboot = boolFn p'lxc_container'reboot
+
+-- | Determine if the caller may control the container.
+--
+-- @False@ if there is a control socket for the container monitor
+-- and the caller may not access it, otherwise returns @True@.
+mayControl :: Container -> IO Bool
+mayControl = boolFn p'lxc_container'may_control
 
 -- | Copy a stopped container.
 clone :: Container      -- ^ Original container.
