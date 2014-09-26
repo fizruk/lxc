@@ -478,6 +478,22 @@ clearConfigItem :: Container  -- ^ Container.
                 -> IO Bool    -- ^ @True@ on success, else @False@.
 clearConfigItem c s = stringBoolFn p'lxc_container'clear_config_item c (Just s)
 
+-- | Determine full path to the containers configuration file.
+--
+-- Each container can have a custom configuration path. However
+-- by default it will be set to either the @LXCPATH@ configure
+-- variable, or the lxcpath value in the @LXC_GLOBAL_CONF@ configuration
+-- file (i.e. @\/etc\/lxc\/lxc.conf@).
+--
+-- The value for a specific container can be changed using
+-- 'setConfigPath'.
+getConfigPath :: Container -> IO FilePath
+getConfigPath c = do
+  cs <- join $ mkFn getContainer mkStringFn p'lxc_container'get_config_path c
+  s <- peekCString cs
+  free cs
+  return s
+
 -- | Set the full path to the containers configuration file.
 setConfigPath :: Container  -- ^ Container.
               -> FilePath   -- ^ Full path to configuration file.
