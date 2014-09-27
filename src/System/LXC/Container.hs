@@ -1,4 +1,4 @@
-module LXC.Container (
+module System.LXC.Container (
   -- * Data types
   Container(..),
   Snapshot(..),
@@ -76,4 +76,4 @@ module LXC.Container (
   logClose,
 ) where
 
-import LXC.Internal.Container
+import System.LXC.Internal.Container

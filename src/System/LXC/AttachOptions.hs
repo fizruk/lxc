@@ -1,4 +1,4 @@
-module LXC.AttachOptions (
+module System.LXC.AttachOptions (
   -- * Attach options
   AttachOptions(..),
   defaultAttachOptions,
@@ -15,4 +15,4 @@ module LXC.AttachOptions (
   fromAttachFlag,
 ) where
 
-import LXC.Internal.AttachOptions
+import System.LXC.Internal.AttachOptions

@@ -1,4 +1,4 @@
-module LXC.Internal.AttachOptions where
+module System.LXC.Internal.AttachOptions where
 
 import Bindings.LXC.AttachOptions
 
@@ -13,7 +13,7 @@ import Foreign.Marshal.Utils
 import Foreign.Ptr
 import Foreign.Storable
 
-import LXC.Internal.Utils
+import System.LXC.Internal.Utils
 
 import System.Posix.Types
 
@@ -50,7 +50,7 @@ fromAttachFlag AttachLSMNow           = c'LXC_ATTACH_LSM_NOW
 fromAttachFlag AttachDefault          = c'LXC_ATTACH_DEFAULT
 fromAttachFlag AttachLSM              = c'LXC_ATTACH_LSM
 
--- | LXC attach options for 'LXC.Container.attach'.
+-- | LXC attach options for 'System.LXC.Container.attach'.
 --
 -- * /NOTE:/ for @stdin@, @stdout@ and @stderr@ descriptors
 -- @dup2()@ will be used before calling @exec_function@,

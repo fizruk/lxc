@@ -1,4 +1,4 @@
-module LXC.Internal.Container where
+module System.LXC.Internal.Container where
 
 import Bindings.LXC.AttachOptions
 import Bindings.LXC.Container
@@ -18,8 +18,8 @@ import Foreign.Marshal.Utils
 import Foreign.Ptr
 import Foreign.Storable
 
-import LXC.Internal.AttachOptions
-import LXC.Internal.Utils
+import System.LXC.Internal.AttachOptions
+import System.LXC.Internal.Utils
 
 import System.Exit
 import System.Posix.Types (ProcessID, Fd)

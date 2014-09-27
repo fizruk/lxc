@@ -1,7 +1,7 @@
 name:                lxc
 version:             0.1
 synopsis:            High level Haskell bindings to LXC (Linux containers).
-description:         The library provides Haskell LXC API, wrapping <http://hackage.haskell.org/package/bindings-lxc @bindings-lxc@ package>.
+description:         The library provides Haskell LXC API, wrapping <http://hackage.haskell.org/package/bindings-lxc bindings-lxc package>.
 homepage:            https://github.com/fizruk/lxc
 bug-reports:         https://github.com/fizruk/lxc/issues
 license:             BSD3
@@ -18,12 +18,12 @@ library
   hs-source-dirs:     src
   default-language:   Haskell2010
   exposed-modules:
-    LXC
-    LXC.Container
-    LXC.AttachOptions
+    System.LXC
+    System.LXC.Container
+    System.LXC.AttachOptions
     -- internal modules
-    LXC.Internal.Container
-    LXC.Internal.Utils
+    System.LXC.Internal.Container
+    System.LXC.Internal.Utils
   build-depends:      base          >=4.7   &&  <4.8
                     , bindings-lxc  >=0.1   &&  <0.2
 

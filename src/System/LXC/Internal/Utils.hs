@@ -1,4 +1,4 @@
-module LXC.Internal.Utils where
+module System.LXC.Internal.Utils where
 
 import Data.Bits
 import Data.List
