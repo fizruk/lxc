@@ -137,7 +137,7 @@ data ContainerState
   | ContainerFreezing
   | ContainerFrozen
   | ContainerThawed
-  | ContainerUnknownState
+  | ContainerOtherState String
   deriving (Eq, Show)
 
 parseState :: String -> ContainerState
@@ -149,18 +149,18 @@ parseState "ABORTING" = ContainerAborting
 parseState "FREEZING" = ContainerFreezing
 parseState "FROZEN"   = ContainerFrozen
 parseState "THAWED"   = ContainerThawed
-parseState _          = ContainerUnknownState
+parseState s          = ContainerOtherState s
 
 printState :: ContainerState -> String
-printState ContainerStopped       = "STOPPED"
-printState ContainerStarting      = "STARTING"
-printState ContainerRunning       = "RUNNING"
-printState ContainerStopping      = "STOPPING"
-printState ContainerAborting      = "ABORTING"
-printState ContainerFreezing      = "FREEZING"
-printState ContainerFrozen        = "FROZEN"
-printState ContainerThawed        = "THAWED"
-printState ContainerUnknownState  = "UNKNOWN"
+printState ContainerStopped         = "STOPPED"
+printState ContainerStarting        = "STARTING"
+printState ContainerRunning         = "RUNNING"
+printState ContainerStopping        = "STOPPING"
+printState ContainerAborting        = "ABORTING"
+printState ContainerFreezing        = "FREEZING"
+printState ContainerFrozen          = "FROZEN"
+printState ContainerThawed          = "THAWED"
+printState (ContainerOtherState s)  = s
 
 -- | Specifications for how to create a new backing store.
 data BDevSpecs = BDevSpecs
@@ -619,3 +619,45 @@ create c t bdevtype bdevspecs flags argv = do
                      (mkFlags createFlag flags)
                      cargv'
   return (r == 1)
+
+-- | Add a reference to the specified container.
+getRef :: Container -> IO Bool
+getRef (Container c) = (== 1) <$> c'lxc_container_get c
+
+-- | Drop a reference to the specified container.
+--
+-- @Just False@ on success, @Just True@ if reference was successfully dropped
+-- and container has been freed, and @Nothing@ on error.
+dropRef :: Container
+        -> IO (Maybe Bool)
+dropRef (Container c) = do
+  n <- c'lxc_container_put c
+  return $ case n of
+             0 -> Just False
+             1 -> Just True
+             _ -> Nothing
+
+-- | Obtain a list of all container states.
+getWaitStates :: IO [ContainerState]
+getWaitStates = do
+  sz <- fromIntegral <$> c'lxc_get_wait_states nullPtr
+  allocaArray sz $ \cstates -> do
+    c'lxc_get_wait_states cstates
+    cstates' <- peekArray sz cstates
+    map parseState <$> mapM peekCString cstates'
+    -- we do not need to free the strings themselves
+
+-- | Get the value for a global config key.
+getGlobalConfigItem :: String             -- ^ The name of the config key.
+                    -> IO (Maybe String)  -- ^ String representing the current value for the key. @Nothing@ on error.
+getGlobalConfigItem k = do
+  withCString k $ \ck -> do
+    cv <- c'lxc_get_global_config_item ck
+    if (cv == nullPtr)
+      then return Nothing
+      else Just <$> peekCString cv
+
+-- | Determine version of LXC.
+getVersion :: IO String
+getVersion = c'lxc_get_version >>= peekCString
+
