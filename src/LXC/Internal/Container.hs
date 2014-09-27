@@ -18,7 +18,7 @@ import Foreign.Marshal.Utils
 import Foreign.Ptr
 import Foreign.Storable
 
-import LXC.AttachOptions
+import LXC.Internal.AttachOptions
 import LXC.Internal.Utils
 
 import System.Exit
