@@ -336,14 +336,17 @@ loadConfig = stringBoolFn p'lxc_container'load_config
 
 -- | Start the container.
 start :: Container  -- ^ Container.
-      -> Int        -- ^ Use @lxcinit@ rather than @/sbin/init@.
+      -> Bool       -- ^ Use @lxcinit@ rather than @\/sbin\/init@.
       -> [String]   -- ^ Array of arguments to pass to init.
       -> IO Bool    -- ^ @True@ on success, else @False@.
-start c n argv = do
+start c useinit argv = do
   fn <- mkFn getContainer mkStartFn p'lxc_container'start c
-  withMany withCString argv $ \cargv ->
-    withArray0 nullPtr cargv $ \cargv' ->
-      toBool <$> fn (fromIntegral n) cargv'
+  case argv of
+    [] -> toBool <$> fn (fromBool useinit) nullPtr
+    _  -> do
+      withMany withCString argv $ \cargv ->
+        withArray0 nullPtr cargv $ \cargv' ->
+          toBool <$> fn (fromBool useinit) cargv'
 
 -- | Stop the container.
 --
