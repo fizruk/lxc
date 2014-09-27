@@ -93,6 +93,10 @@ type ContainerSnapshotListFn = Ptr C'lxc_container -> Ptr (Ptr C'lxc_snapshot) -
 foreign import ccall "dynamic"
   mkSnapshotListFn :: FunPtr ContainerSnapshotListFn -> ContainerSnapshotListFn
 
+type ContainerConsoleGetFDFn = Ptr C'lxc_container -> Ptr CInt -> Ptr CInt -> IO CInt
+foreign import ccall "dynamic"
+  mkConsoleGetFDFn :: FunPtr ContainerConsoleGetFDFn -> ContainerConsoleGetFDFn
+
 type SnapshotFreeFn = Ptr C'lxc_snapshot -> IO ()
 foreign import ccall "dynamic"
   mkFreeFn :: FunPtr SnapshotFreeFn -> SnapshotFreeFn
@@ -550,6 +554,27 @@ clone c newname lxcpath flags bdevtype bdevdata newsize hookargs = do
                       chookargs'
   when (c' == nullPtr) $ error "failed to clone a container"
   return $ Container c'
+
+-- | Allocate a console tty for the container.
+--
+-- * The returned file descriptor is used to keep the tty
+-- allocated. The caller should call close(2) on the returned file
+-- descriptor when no longer required so that it may be allocated
+-- by another caller.
+consoleGetFD :: Container                   -- ^ Container.
+             -> Maybe Int                   -- ^ Terminal number to attempt to allocate, or @Nothing@ to allocate the first available tty.
+             -> IO (Maybe (Int, Int, Int))  -- ^ Tuple /@<fd, ttynum, masterfd>@/ where @fd@ is file descriptor number, @ttynum@ is terminal number and @masterfd@ is file descriptor refering to the master side of the pty.
+consoleGetFD c ttynum = do
+  fn <- mkFn getContainer mkConsoleGetFDFn p'lxc_container'console_getfd c
+  alloca $ \cttynum ->
+    alloca $ \cmasterfd -> do
+      poke cttynum (fromIntegral $ fromMaybe (-1) ttynum)
+      fd       <- fromIntegral <$> fn cttynum cmasterfd
+      ttynum'  <- fromIntegral <$> peek cttynum
+      masterfd <- fromIntegral <$> peek cmasterfd
+      if (fd < 0)
+        then return Nothing
+        else return $ Just (fd, ttynum, masterfd)
 
 -- | Create a container snapshot.
 --
