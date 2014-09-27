@@ -10,12 +10,14 @@ import Foreign.C.String
 import Foreign.Marshal.Alloc
 import Foreign.Marshal.Array
 import Foreign.Marshal.Utils
-import Foreign.Ptr (nullPtr, Ptr, FunPtr)
+import Foreign.Ptr
 import Foreign.Storable
 
 import LXC.Internal.Utils
 
 import System.Posix.Types
+
+newtype AttachExecFn = AttachExecFn { getAttachExecFn :: C_lxc_attach_exec_t }
 
 -- | LXC environment policy.
 data AttachEnvPolicy
@@ -140,4 +142,12 @@ withC'lxc_attach_command_t a f = do
           poke (p'lxc_attach_command_t'program ca) cprogram
           poke (p'lxc_attach_command_t'argv    ca) cargv'
           f ca
+
+-- | Run a command in the container.
+attachRunCommand :: AttachExecFn
+attachRunCommand = AttachExecFn p'lxc_attach_run_command
+
+-- | Run a shell command in the container.
+attachRunShell :: AttachExecFn
+attachRunShell = AttachExecFn p'lxc_attach_run_shell
 

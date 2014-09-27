@@ -1,5 +1,6 @@
 module LXC.Container where
 
+import Bindings.LXC.AttachOptions
 import Bindings.LXC.Container
 import Bindings.LXC.Sys.Types
 
@@ -14,9 +15,10 @@ import Foreign.C.String
 import Foreign.Marshal.Alloc
 import Foreign.Marshal.Array
 import Foreign.Marshal.Utils
-import Foreign.Ptr (nullPtr, Ptr, FunPtr)
+import Foreign.Ptr
 import Foreign.Storable
 
+import LXC.AttachOptions
 import LXC.Internal.Utils
 
 import System.Posix.Types (ProcessID, Fd)
@@ -100,6 +102,10 @@ foreign import ccall "dynamic"
 type ContainerConsoleFn = Ptr C'lxc_container -> CInt -> CInt -> CInt -> CInt -> CInt -> IO CInt
 foreign import ccall "dynamic"
   mkConsoleFn :: FunPtr ContainerConsoleFn -> ContainerConsoleFn
+
+type ContainerAttachFn = Ptr C'lxc_container -> C_lxc_attach_exec_t -> Ptr () -> Ptr C'lxc_attach_options_t -> Ptr C'pid_t -> IO CInt
+foreign import ccall "dynamic"
+  mkAttachFn :: FunPtr ContainerAttachFn -> ContainerAttachFn
 
 type SnapshotFreeFn = Ptr C'lxc_snapshot -> IO ()
 foreign import ccall "dynamic"
@@ -591,6 +597,22 @@ console c ttynum stdin stdout stderr escape = do
                 (fromIntegral stdout)
                 (fromIntegral stderr)
                 (fromIntegral escape)
+
+-- | Create a sub-process attached to a container and run a function inside it.
+attach :: Container             -- ^ Container.
+       -> AttachExecFn          -- ^ Function to run.
+       -> AttachCommand         -- ^ Data to pass to @exec@ function.
+       -> AttachOptions         -- ^ Attach options.
+       -> IO (Maybe ProcessID)  -- ^ Process ID of process running inside container @c@ that is running @exec@ function, or @Nothing@ on error.
+attach c exec cmd opts = do
+  fn <- mkFn getContainer mkAttachFn p'lxc_container'attach c
+  withC'lxc_attach_command_t cmd $ \ccmd ->
+    withC'lxc_attach_options_t opts $ \copts ->
+      alloca $ \cpid -> do
+        ret <- fn (getAttachExecFn exec) (castPtr ccmd) copts cpid
+        if (ret < 0)
+          then return Nothing
+          else Just . fromIntegral <$> peek cpid
 
 -- | Create a container snapshot.
 --
