@@ -699,3 +699,8 @@ listActiveContainers = listContainersFn c'list_active_containers
 listAllContainers :: Maybe String               -- ^ Full @LXCPATH@ path to consider.
                   -> IO [(String, Container)]   -- ^ List of <name, container> pairs.
 listAllContainers = listContainersFn c'list_all_containers
+
+-- | Close log file.
+logClose :: IO ()
+logClose = c'lxc_log_close
+
