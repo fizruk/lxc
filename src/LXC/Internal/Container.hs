@@ -133,7 +133,7 @@ data CreateOption
   deriving (Eq, Ord)
 
 -- | Turn 'CloneOption' into a bit flag.
-cloneFlag :: CloneOption -> CInt
+cloneFlag :: Num a => CloneOption -> a
 cloneFlag CloneKeepName       = c'LXC_CLONE_KEEPNAME
 cloneFlag CloneKeepMacAddr    = c'LXC_CLONE_KEEPMACADDR
 cloneFlag CloneSnapshot       = c'LXC_CLONE_SNAPSHOT
@@ -142,7 +142,7 @@ cloneFlag CloneMaybeSnapshot  = c'LXC_CLONE_MAYBE_SNAPSHOT
 cloneFlag CloneMaxFlags       = c'LXC_CLONE_MAXFLAGS
 
 -- | Turn 'CreateOption' into a bit flag.
-createFlag :: CreateOption -> CInt
+createFlag :: Num a => CreateOption -> a
 createFlag CreateQuiet    = c'LXC_CREATE_QUIET
 createFlag CreateMaxFlags = c'LXC_CREATE_MAXFLAGS
 
@@ -252,18 +252,18 @@ mkFn unwrap mk g t = do
 boolFn :: Field C'lxc_container (FunPtr ContainerBoolFn) -> Container -> IO Bool
 boolFn g c = do
   fn <- mkFn getContainer mkBoolFn g c
-  (== 1) <$> fn
+  toBool <$> fn
 
 stringBoolFn :: Field C'lxc_container (FunPtr ContainerStringBoolFn) -> Container -> Maybe String -> IO Bool
 stringBoolFn g c s = do
   fn <- mkFn getContainer mkStringBoolFn g c
   maybeWith withCString s $ \cs ->
-    (== 1) <$> fn cs
+    toBool <$> fn cs
 
 boolBoolFn :: Field C'lxc_container (FunPtr ContainerBoolBoolFn) -> Container -> Bool -> IO Bool
 boolBoolFn g c b = do
   fn <- mkFn getContainer mkBoolBoolFn g c
-  (== 1) <$> fn (if b then 1 else 0)
+  toBool <$> fn (if b then 1 else 0)
 
 getItemFn :: Field C'lxc_container (FunPtr ContainerGetItemFn) -> Container -> String -> IO (Maybe String)
 getItemFn g c s = do
@@ -283,7 +283,7 @@ setItemFn g c k v = do
   fn <- mkFn getContainer mkSetItemFn g c
   withCString k $ \ck ->
     maybeWith withCString v $ \cv ->
-      (== 1) <$> fn ck cv
+      toBool <$> fn ck cv
 
 setItemFn' :: Field C'lxc_container (FunPtr ContainerSetItemFn) -> Container -> String -> String -> IO Bool
 setItemFn' g c k v = setItemFn g c k (Just v)
@@ -343,7 +343,7 @@ start c n argv = do
   fn <- mkFn getContainer mkStartFn p'lxc_container'start c
   withMany withCString argv $ \cargv ->
     withArray0 nullPtr cargv $ \cargv' ->
-      (== 1) <$> fn (fromIntegral n) cargv'
+      toBool <$> fn (fromIntegral n) cargv'
 
 -- | Stop the container.
 --
@@ -368,12 +368,9 @@ configFileName :: Container -> IO (Maybe FilePath)
 configFileName (Container c) = do
   fn <- peek (p'lxc_container'config_file_name c)
   cs <- mkStringFn fn c
-  if (cs == nullPtr)
-    then return Nothing
-    else do
-      s <- peekCString cs
-      free cs
-      return $ Just s
+  s <- maybePeek peekCString cs
+  when (isJust s) $ free cs
+  return s
 
 -- | Wait for container to reach a particular state.
 --
@@ -386,7 +383,7 @@ wait :: Container       -- ^ Container.
 wait c s t = do
   fn <- mkFn getContainer mkWaitFn p'lxc_container'wait c
   withCString (printState s) $ \cs ->
-    (== 1) <$> fn cs (fromIntegral t)
+    toBool <$> fn cs (fromIntegral t)
 
 -- | Set a key/value configuration option.
 setConfigItem :: Container  -- ^ Container.
@@ -427,7 +424,7 @@ shutdown :: Container   -- ^ Container.
          -> IO Bool     -- ^ @True@ if the container was shutdown successfully, else @False@.
 shutdown c n = do
   fn <- mkFn getContainer mkShutdownFn p'lxc_container'shutdown c
-  (== 1) <$> fn (fromIntegral n)
+  toBool <$> fn (fromIntegral n)
 
 -- | Completely clear the containers in-memory configuration.
 clearConfig :: Container -> IO ()
@@ -447,12 +444,9 @@ getRunningConfigItem c k = do
   fn <- mkFn getContainer mkGetRunningConfigItemFn p'lxc_container'get_running_config_item c
   withCString k $ \ck -> do
     cv <- fn ck
-    if (cv == nullPtr)
-      then return Nothing
-      else do
-        v <- peekCString cv
-        free cv
-        return (Just v)
+    v <- maybePeek peekCString cv
+    when (isJust v) $ free cv
+    return v
 
 -- | Retrieve a list of config item keys given a key prefix.
 getKeys :: Container    -- ^ Container.
@@ -733,25 +727,24 @@ create :: Container         -- ^ Container (with lxcpath, name and a starting co
        -> [CreateOption]    -- ^ 'CreateOption' flags. /Note: LXC 1.0 supports only @CreateQuiet@ option./
        -> [String]          -- ^ Arguments to pass to the template.
        -> IO Bool           -- ^ @True@ on success. @False@ otherwise.
-create c t bdevtype bdevspecs flags argv = do
-  r <- withMany withCString argv $ \cargv ->
-          withArray0 nullPtr cargv $ \cargv' ->
-             withCString t $ \ct ->
-               maybeWith withCString bdevtype $ \cbdevtype ->
-                 maybeWith withC'bdev_specs bdevspecs $ \cbdevspecs -> do
-                   fn <- peek $ p'lxc_container'create $ getContainer c
-                   mkCreateFn fn
-                     (getContainer c)
-                     ct
-                     cbdevtype
-                     nullPtr
-                     (mkFlags createFlag flags)
-                     cargv'
-  return (r == 1)
+create c t bdevtype bdevspecs flags argv = toBool <$> do
+  withMany withCString argv $ \cargv ->
+    withArray0 nullPtr cargv $ \cargv' ->
+       withCString t $ \ct ->
+         maybeWith withCString bdevtype $ \cbdevtype ->
+           maybeWith withC'bdev_specs bdevspecs $ \cbdevspecs -> do
+             fn <- peek $ p'lxc_container'create $ getContainer c
+             mkCreateFn fn
+               (getContainer c)
+               ct
+               cbdevtype
+               nullPtr
+               (mkFlags createFlag flags)
+               cargv'
 
 -- | Add a reference to the specified container.
 getRef :: Container -> IO Bool
-getRef (Container c) = (== 1) <$> c'lxc_container_get c
+getRef (Container c) = toBool <$> c'lxc_container_get c
 
 -- | Drop a reference to the specified container.
 --
@@ -782,9 +775,7 @@ getGlobalConfigItem :: String             -- ^ The name of the config key.
 getGlobalConfigItem k = do
   withCString k $ \ck -> do
     cv <- c'lxc_get_global_config_item ck
-    if (cv == nullPtr)
-      then return Nothing
-      else Just <$> peekCString cv
+    maybePeek peekCString cv
 
 -- | Determine version of LXC.
 getVersion :: IO String
