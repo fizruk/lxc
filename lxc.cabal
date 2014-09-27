@@ -25,7 +25,7 @@ library
     System.LXC.Internal.Container
     System.LXC.Internal.Utils
   build-depends:      base          >=4.7   &&  <4.8
-                    , bindings-lxc  >=0.1   &&  <0.2
+                    , bindings-lxc  >=0.2   &&  <0.3
 
 source-repository head
   type: git
