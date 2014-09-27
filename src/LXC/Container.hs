@@ -21,6 +21,7 @@ import Foreign.Storable
 import LXC.AttachOptions
 import LXC.Internal.Utils
 
+import System.Exit
 import System.Posix.Types (ProcessID, Fd)
 
 type ContainerCreateFn = Ptr C'lxc_container -> CString -> CString -> Ptr C'bdev_specs -> CInt -> Ptr CString -> IO CBool
@@ -106,6 +107,10 @@ foreign import ccall "dynamic"
 type ContainerAttachFn = Ptr C'lxc_container -> C_lxc_attach_exec_t -> Ptr () -> Ptr C'lxc_attach_options_t -> Ptr C'pid_t -> IO CInt
 foreign import ccall "dynamic"
   mkAttachFn :: FunPtr ContainerAttachFn -> ContainerAttachFn
+
+type ContainerAttachRunWaitFn = Ptr C'lxc_container -> Ptr C'lxc_attach_options_t -> CString -> Ptr CString -> IO CInt
+foreign import ccall "dynamic"
+  mkAttachRunWaitFn :: FunPtr ContainerAttachRunWaitFn -> ContainerAttachRunWaitFn
 
 type SnapshotFreeFn = Ptr C'lxc_snapshot -> IO ()
 foreign import ccall "dynamic"
@@ -613,6 +618,24 @@ attach c exec cmd opts = do
         if (ret < 0)
           then return Nothing
           else Just . fromIntegral <$> peek cpid
+
+-- | Run a program inside a container and wait for it to exit.
+attachRunWait :: Container            -- ^ Container.
+              -> AttachOptions        -- ^ Attach options.
+              -> String               -- ^ Full path inside container of program to run.
+              -> [String]             -- ^ Array of arguments to pass to program.
+              -> IO (Maybe ExitCode)  -- ^ @waitpid(2)@ status of exited process that ran program, or @Nothing@ on error.
+attachRunWait c opts prg argv = do
+  fn <- mkFn getContainer mkAttachRunWaitFn p'lxc_container'attach_run_wait c
+  withCString prg $ \cprg ->
+    withMany withCString argv $ \cargv ->
+      withArray0 nullPtr cargv $ \cargv' ->
+        withC'lxc_attach_options_t opts $ \copts -> do
+          ret <- fromIntegral <$> fn copts cprg cargv'
+          case ret of
+            _ | ret < 0 -> return Nothing
+            0           -> return $ Just ExitSuccess
+            _           -> return $ Just (ExitFailure ret)
 
 -- | Create a container snapshot.
 --
