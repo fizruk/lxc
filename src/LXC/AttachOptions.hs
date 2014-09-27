@@ -3,6 +3,17 @@ module LXC.AttachOptions where
 import Bindings.LXC.AttachOptions
 
 import Data.Int
+import Data.Maybe
+
+import Foreign.C.Types
+import Foreign.C.String
+import Foreign.Marshal.Alloc
+import Foreign.Marshal.Array
+import Foreign.Marshal.Utils
+import Foreign.Ptr (nullPtr, Ptr, FunPtr)
+import Foreign.Storable
+
+import LXC.Internal.Utils
 
 import System.Posix.Types
 
@@ -12,6 +23,10 @@ data AttachEnvPolicy
   | AttachClearEnv    -- ^ Clear the environment.
   deriving (Eq, Show)
 
+fromAttachEnvPolicy :: Num a => AttachEnvPolicy -> a
+fromAttachEnvPolicy AttachKeepEnv   = c'LXC_ATTACH_KEEP_ENV
+fromAttachEnvPolicy AttachClearEnv  = c'LXC_ATTACH_CLEAR_ENV
+
 data AttachFlag
   = AttachMoveToCGroup      -- ^ Move to cgroup. On by default.
   | AttachDropCapabilities  -- ^ Drop capabilities. On by default.
@@ -20,7 +35,18 @@ data AttachFlag
   | AttachRemountProcSys    -- ^ Remount /proc filesystem. Off by default.
   | AttachLSMNow            -- ^ FIXME: unknown. Off by default.
   | AttachDefault           -- ^ Mask of flags to apply by default.
+  | AttachLSM               -- ^ All Linux Security Module flags.
   deriving (Eq, Show)
+
+fromAttachFlag :: Num a => AttachFlag -> a
+fromAttachFlag AttachMoveToCGroup     = c'LXC_ATTACH_MOVE_TO_CGROUP
+fromAttachFlag AttachDropCapabilities = c'LXC_ATTACH_DROP_CAPABILITIES
+fromAttachFlag AttachSetPersonality   = c'LXC_ATTACH_SET_PERSONALITY
+fromAttachFlag AttachLSMExec          = c'LXC_ATTACH_LSM_EXEC
+fromAttachFlag AttachRemountProcSys   = c'LXC_ATTACH_REMOUNT_PROC_SYS
+fromAttachFlag AttachLSMNow           = c'LXC_ATTACH_LSM_NOW
+fromAttachFlag AttachDefault          = c'LXC_ATTACH_DEFAULT
+fromAttachFlag AttachLSM              = c'LXC_ATTACH_LSM
 
 -- | LXC attach options for 'LXC.Container.attach'.
 --
@@ -31,7 +57,7 @@ data AttachFlag
 -- over. Any @O_CLOEXEC@ flag will be removed after that.
 data AttachOptions = AttachOptions
   { attachFlags         :: [AttachFlag]       -- ^ Any combination of 'AttachFlag' flags.
-  , attachNamespace     :: Int                -- ^ The namespaces to attach to (CLONE_NEW... flags).
+  , attachNamespaces    :: Int                -- ^ The namespaces to attach to (CLONE_NEW... flags).
   -- | Initial personality (@Nothing@ to autodetect).
   --
   -- * This may be ignored if @lxc@ is compiled without personality support
@@ -64,8 +90,8 @@ data AttachOptions = AttachOptions
 defaultAttachOptions :: AttachOptions
 defaultAttachOptions = AttachOptions
   { attachFlags         = [AttachDefault]
-  , attachNamespace     = -1
-  , attachPersonality   = Just (-1)
+  , attachNamespaces    = -1
+  , attachPersonality   = Nothing
   , attachInitialCWD    = Nothing
   , attachUID           = -1
   , attachGID           = -1
@@ -82,4 +108,26 @@ data AttachCommand = AttachCommand
   { attachProgram :: String   -- ^ The program to run (passed to @execvp@).
   , attachArgv    :: [String] -- ^ The @argv@ of that program, including the program itself as the first element.
   }
+
+withC'lxc_attach_options_t :: AttachOptions -> (Ptr C'lxc_attach_options_t -> IO a) -> IO a
+withC'lxc_attach_options_t a f = do
+  alloca $ \ca ->
+    maybeWith withCString (attachInitialCWD a) $ \cinitialCWD ->
+      withMany withCString (attachExtraEnvVars a) $ \cextraEnvVars ->
+        withArray0 nullPtr cextraEnvVars $ \cextraEnvVars' ->
+          withMany withCString (attachExtraKeepEnv a) $ \cextraKeepEnv ->
+            withArray0 nullPtr cextraKeepEnv $ \cextraKeepEnv' -> do
+              poke (p'lxc_attach_options_t'attach_flags   ca) (mkFlags fromAttachFlag . attachFlags              $ a)
+              poke (p'lxc_attach_options_t'namespaces     ca) (fromIntegral . attachNamespaces                   $ a)
+              poke (p'lxc_attach_options_t'personality    ca) (fromIntegral . fromMaybe (-1) . attachPersonality $ a)
+              poke (p'lxc_attach_options_t'initial_cwd    ca) (const cinitialCWD                                 $ a)
+              poke (p'lxc_attach_options_t'uid            ca) (fromIntegral . attachUID                          $ a)
+              poke (p'lxc_attach_options_t'gid            ca) (fromIntegral . attachGID                          $ a)
+              poke (p'lxc_attach_options_t'env_policy     ca) (fromAttachEnvPolicy . attachEnvPolicy             $ a)
+              poke (p'lxc_attach_options_t'extra_env_vars ca) (const cextraEnvVars'                              $ a)
+              poke (p'lxc_attach_options_t'extra_keep_env ca) (const cextraKeepEnv'                              $ a)
+              poke (p'lxc_attach_options_t'stdin_fd       ca) (fromIntegral . attachStdinFD                      $ a)
+              poke (p'lxc_attach_options_t'stdout_fd      ca) (fromIntegral . attachStdoutFD                     $ a)
+              poke (p'lxc_attach_options_t'stderr_fd      ca) (fromIntegral . attachStderrFD                     $ a)
+              f ca
 

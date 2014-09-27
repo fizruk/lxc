@@ -6,8 +6,6 @@ import Bindings.LXC.Sys.Types
 import Control.Applicative
 import Control.Monad
 
-import Data.Bits
-import Data.List
 import Data.Maybe
 import Data.Word
 
@@ -18,6 +16,8 @@ import Foreign.Marshal.Array
 import Foreign.Marshal.Utils
 import Foreign.Ptr (nullPtr, Ptr, FunPtr)
 import Foreign.Storable
+
+import LXC.Internal.Utils
 
 import System.Posix.Types (ProcessID, Fd)
 
@@ -134,10 +134,6 @@ cloneFlag CloneMaxFlags       = c'LXC_CLONE_MAXFLAGS
 createFlag :: CreateOption -> CInt
 createFlag CreateQuiet    = c'LXC_CREATE_QUIET
 createFlag CreateMaxFlags = c'LXC_CREATE_MAXFLAGS
-
--- | Collect flags in a single integer value.
-mkFlags :: (a -> CInt) -> [a] -> CInt
-mkFlags f = foldl' (.|.) 0 . map f
 
 -- | An LXC container snapshot.
 data Snapshot = Snapshot
