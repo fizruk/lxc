@@ -661,3 +661,28 @@ getGlobalConfigItem k = do
 getVersion :: IO String
 getVersion = c'lxc_get_version >>= peekCString
 
+-- | Get a list of defined containers in a lxcpath.
+listDefinedContainers :: Maybe String               -- ^ lxcpath under which to look.
+                      -> IO [(String, Container)]   -- ^ List of <name, container> pairs.
+listDefinedContainers lxcpath = do
+  maybeWith withCString lxcpath $ \clxcpath ->
+    alloca $ \cnames ->
+      alloca $ \ccontainers -> do
+        n <- fromIntegral <$> c'list_defined_containers clxcpath cnames ccontainers
+        if (n < 0)
+          then return []
+          else do
+            cnames'  <- peek cnames
+            cnames'' <- peekArray n cnames'
+            names    <- mapM peekCString cnames''
+            mapM_ free cnames''
+            free cnames'
+
+            ccontainers' <- peek ccontainers
+            containers   <- map Container <$> peekArray n ccontainers'
+            free ccontainers'
+
+            return $ zip names containers
+
+
+
