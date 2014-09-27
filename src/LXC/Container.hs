@@ -15,7 +15,7 @@ import Foreign.C.Types
 import Foreign.C.String
 import Foreign.Marshal.Alloc
 import Foreign.Marshal.Array
-import Foreign.Marshal.Utils (with, maybeWith, withMany)
+import Foreign.Marshal.Utils
 import Foreign.Ptr (nullPtr, Ptr, FunPtr)
 import Foreign.Storable
 
@@ -89,6 +89,14 @@ type ContainerSnapshotFn = Ptr C'lxc_container -> CString -> IO CInt
 foreign import ccall "dynamic"
   mkSnapshotFn :: FunPtr ContainerSnapshotFn -> ContainerSnapshotFn
 
+type ContainerSnapshotListFn = Ptr C'lxc_container -> Ptr (Ptr C'lxc_snapshot) -> IO CInt
+foreign import ccall "dynamic"
+  mkSnapshotListFn :: FunPtr ContainerSnapshotListFn -> ContainerSnapshotListFn
+
+type SnapshotFreeFn = Ptr C'lxc_snapshot -> IO ()
+foreign import ccall "dynamic"
+  mkFreeFn :: FunPtr SnapshotFreeFn -> SnapshotFreeFn
+
 -- | Options for 'clone' operation.
 data CloneOption
   = CloneKeepName        -- ^ Do not edit the rootfs to change the hostname.
@@ -122,6 +130,15 @@ createFlag CreateMaxFlags = c'LXC_CREATE_MAXFLAGS
 -- | Collect flags in a single integer value.
 mkFlags :: (a -> CInt) -> [a] -> CInt
 mkFlags f = foldl' (.|.) 0 . map f
+
+-- | An LXC container snapshot.
+data Snapshot = Snapshot
+  { snapshotName            :: String         -- ^ Name of snapshot.
+  , snapshotCommentPathname :: Maybe FilePath -- ^ Full path to snapshots comment file.
+  , snapshotTimestamp       :: String         -- ^ Time snapshot was created.
+  , snapshotLXCPath         :: FilePath       -- ^ Full path to @LXCPATH@ for snapshot.
+  }
+  deriving (Show)
 
 -- | Container object.
 newtype Container = Container {
@@ -550,6 +567,32 @@ snapshot c path = do
     if (n == -1)
       then return Nothing
       else return (Just $ fromIntegral n)
+
+peekC'lxc_snapshot :: Ptr C'lxc_snapshot -> IO Snapshot
+peekC'lxc_snapshot ptr = Snapshot
+  <$> peekField peekCString             p'lxc_snapshot'name
+  <*> peekField (maybePeek peekCString) p'lxc_snapshot'comment_pathname
+  <*> peekField peekCString             p'lxc_snapshot'timestamp
+  <*> peekField peekCString             p'lxc_snapshot'lxcpath
+  where
+    peekField g f = peek (f ptr) >>= g
+
+-- | Obtain a list of container snapshots.
+snapshotList :: Container
+             -> IO [Snapshot]
+snapshotList c = do
+  alloca $ \css -> do
+    fn <- mkFn getContainer mkSnapshotListFn p'lxc_container'snapshot_list c
+    n  <- fromIntegral <$> fn css
+    if (n < 0)
+      then return []
+      else do
+        css'  <- peek css
+        let css'' = take n $ iterate (flip advancePtr 1) css'
+        css   <- mapM peekC'lxc_snapshot css''
+        forM_ css'' $ join . mkFn id mkFreeFn p'lxc_snapshot'free
+        free css'
+        return css
 
 -- | Create a new container based on a snapshot.
 --
