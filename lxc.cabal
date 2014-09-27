@@ -21,6 +21,7 @@ library
     LXC.Container
     LXC.AttachOptions
     -- internal modules
+    LXC.Internal.Container
     LXC.Internal.Utils
   -- other-modules:
   -- other-extensions:
