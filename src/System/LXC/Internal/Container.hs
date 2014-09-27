@@ -637,9 +637,9 @@ attachRunWait c opts prg argv = do
 -- @\/var\/lib\/lxc\/\<c\>\/snaps\/snap\<n\>@
 -- where @\<c\>@ represents the container name and @\<n\>@
 -- represents the zero-based snapshot number.
-snapshot :: Container
-         -> FilePath
-         -> IO (Maybe Int)
+snapshot :: Container       -- ^ Container.
+         -> FilePath        -- ^ Full path to file containing a description of the snapshot.
+         -> IO (Maybe Int)  -- ^ @Nothing@ on error, or zero-based snapshot number.
 snapshot c path = do
   fn <- mkFn getContainer mkSnapshotFn p'lxc_container'snapshot c
   withCString path $ \cpath -> do
@@ -658,8 +658,7 @@ peekC'lxc_snapshot ptr = Snapshot
     peekField g f = peek (f ptr) >>= g
 
 -- | Obtain a list of container snapshots.
-snapshotList :: Container
-             -> IO [Snapshot]
+snapshotList :: Container -> IO [Snapshot]
 snapshotList c = do
   alloca $ \css -> do
     fn <- mkFn getContainer mkSnapshotListFn p'lxc_container'snapshot_list c
@@ -750,8 +749,7 @@ getRef (Container c) = toBool <$> c'lxc_container_get c
 --
 -- @Just False@ on success, @Just True@ if reference was successfully dropped
 -- and container has been freed, and @Nothing@ on error.
-dropRef :: Container
-        -> IO (Maybe Bool)
+dropRef :: Container -> IO (Maybe Bool)
 dropRef (Container c) = do
   n <- c'lxc_container_put c
   return $ case n of
