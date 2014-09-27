@@ -661,14 +661,14 @@ getGlobalConfigItem k = do
 getVersion :: IO String
 getVersion = c'lxc_get_version >>= peekCString
 
--- | Get a list of defined containers in a lxcpath.
-listDefinedContainers :: Maybe String               -- ^ lxcpath under which to look.
-                      -> IO [(String, Container)]   -- ^ List of <name, container> pairs.
-listDefinedContainers lxcpath = do
+listContainersFn :: (CString -> Ptr (Ptr CString) -> Ptr (Ptr (Ptr C'lxc_container)) -> IO CInt)
+                 -> Maybe String
+                 -> IO [(String, Container)]
+listContainersFn f lxcpath = do
   maybeWith withCString lxcpath $ \clxcpath ->
     alloca $ \cnames ->
       alloca $ \ccontainers -> do
-        n <- fromIntegral <$> c'list_defined_containers clxcpath cnames ccontainers
+        n <- fromIntegral <$> f clxcpath cnames ccontainers
         if (n < 0)
           then return []
           else do
@@ -685,4 +685,17 @@ listDefinedContainers lxcpath = do
             return $ zip names containers
 
 
+-- | Get a list of defined containers in a lxcpath.
+listDefinedContainers :: Maybe String               -- ^ lxcpath under which to look.
+                      -> IO [(String, Container)]   -- ^ List of <name, container> pairs.
+listDefinedContainers = listContainersFn c'list_defined_containers
 
+-- | Get a list of active containers for a given lxcpath.
+listActiveContainers :: Maybe String               -- ^ Full @LXCPATH@ path to consider.
+                     -> IO [(String, Container)]   -- ^ List of <name, container> pairs.
+listActiveContainers = listContainersFn c'list_active_containers
+
+-- | Get a complete list of all containers for a given lxcpath.
+listAllContainers :: Maybe String               -- ^ Full @LXCPATH@ path to consider.
+                  -> IO [(String, Container)]   -- ^ List of <name, container> pairs.
+listAllContainers = listContainersFn c'list_all_containers
