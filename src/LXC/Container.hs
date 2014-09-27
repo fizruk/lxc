@@ -19,7 +19,7 @@ import Foreign.Marshal.Utils
 import Foreign.Ptr (nullPtr, Ptr, FunPtr)
 import Foreign.Storable
 
-import System.Posix.Types (ProcessID)
+import System.Posix.Types (ProcessID, Fd)
 
 type ContainerCreateFn = Ptr C'lxc_container -> CString -> CString -> Ptr C'bdev_specs -> CInt -> Ptr CString -> IO CBool
 foreign import ccall "dynamic"
@@ -96,6 +96,10 @@ foreign import ccall "dynamic"
 type ContainerConsoleGetFDFn = Ptr C'lxc_container -> Ptr CInt -> Ptr CInt -> IO CInt
 foreign import ccall "dynamic"
   mkConsoleGetFDFn :: FunPtr ContainerConsoleGetFDFn -> ContainerConsoleGetFDFn
+
+type ContainerConsoleFn = Ptr C'lxc_container -> CInt -> CInt -> CInt -> CInt -> CInt -> IO CInt
+foreign import ccall "dynamic"
+  mkConsoleFn :: FunPtr ContainerConsoleFn -> ContainerConsoleFn
 
 type SnapshotFreeFn = Ptr C'lxc_snapshot -> IO ()
 foreign import ccall "dynamic"
@@ -574,7 +578,23 @@ consoleGetFD c ttynum = do
       masterfd <- fromIntegral <$> peek cmasterfd
       if (fd < 0)
         then return Nothing
-        else return $ Just (fd, ttynum, masterfd)
+        else return $ Just (fd, ttynum', masterfd)
+
+-- | Allocate and run a console tty.
+console :: Container  -- ^ Container.
+        -> Maybe Int  -- ^ Terminal number to attempt to allocate, @Nothing@ to allocate the first available tty or @Just 0@ to allocate the console.
+        -> Fd         -- ^ File descriptor to read input from.
+        -> Fd         -- ^ File descriptor to write output to.
+        -> Fd         -- ^ File descriptor to write error output to.
+        -> Int        -- ^ The escape character (@1 == \'a\'@, @2 == \'b\'@, ...).
+        -> IO Bool    -- ^ @True@ on success, else @False@.
+console c ttynum stdin stdout stderr escape = do
+  fn <- mkFn getContainer mkConsoleFn p'lxc_container'console c
+  toBool <$> fn (fromIntegral $ fromMaybe (-1) ttynum)
+                (fromIntegral stdin)
+                (fromIntegral stdout)
+                (fromIntegral stderr)
+                (fromIntegral escape)
 
 -- | Create a container snapshot.
 --
