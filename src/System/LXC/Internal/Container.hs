@@ -129,6 +129,17 @@ type SnapshotFreeFn = Ptr C'lxc_snapshot -> IO ()
 foreign import ccall "dynamic"
   mkFreeFn :: FunPtr SnapshotFreeFn -> SnapshotFreeFn
 
+-- | LXC error structure.
+data LXCError = LXCError
+  { lxcErrorString  :: String   -- ^ Error message.
+  , lxcErrorNum     :: Int      -- ^ Error number.
+  }
+  deriving (Show)
+
+-- | Pretty print LXC error message.
+prettyLXCError :: LXCError -> String
+prettyLXCError (LXCError msg num) = "Error " ++ show num ++ ": " ++ msg
+
 -- | Options for 'clone' operation.
 data CloneOption
   = CloneKeepName        -- ^ Do not edit the rootfs to change the hostname.
@@ -220,6 +231,7 @@ data BDevSpecs = BDevSpecs
   , bdevLVMThinPool           :: Maybe String   -- ^ LVM thin pool to use, if any.
   , bdevDirectory             :: FilePath       -- ^ Directory path.
   }
+  deriving (Show)
 
 -- | Marshal Haskell 'BDevSpecs' into C structure using temporary storage.
 --
@@ -303,6 +315,18 @@ setItemFn g c k v = do
 
 setItemFn' :: Field C'lxc_container (FunPtr ContainerSetItemFn) -> Container -> String -> String -> IO Bool
 setItemFn' g c k v = setItemFn g c k (Just v)
+
+-- | Whether container wishes to be daemonized.
+getDaemonize :: Container -> IO Bool
+getDaemonize (Container c) = toBool <$> peek (p'lxc_container'daemonize c)
+
+-- | Get last container's error.
+getLastError :: Container -> IO (Maybe LXCError)
+getLastError (Container c) = do
+  cmsg <- peek (p'lxc_container'error_string c)
+  msg  <- maybePeek peekCString cmsg
+  num  <- fromIntegral <$> peek (p'lxc_container'error_num c)
+  return $ LXCError <$> msg <*> pure num
 
 -- | Determine if @\/var\/lib\/lxc\/\$name\/config@ exists.
 --

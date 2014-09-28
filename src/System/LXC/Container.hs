@@ -24,12 +24,19 @@ module System.LXC.Container (
   CloneOption(..),
   CreateOption(..),
   cloneFlag, createFlag,
+  -- * LXC errors
+  LXCError(..),
+  prettyLXCError,
   -- * Container methods
   -- ** Query container state.
   isDefined,
   isRunning,
   state,
   initPID,
+  getInterfaces,
+  getIPs,
+  getDaemonize,
+  getLastError,
   -- ** Container config
   configFileName,
   getConfigPath,
@@ -69,8 +76,6 @@ module System.LXC.Container (
   -- ** Misc
   wantDaemonize,
   wantCloseAllFDs,
-  getInterfaces,
-  getIPs,
   getCGroupItem,
   setCGroupItem,
   mayControl,
