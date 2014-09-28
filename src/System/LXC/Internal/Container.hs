@@ -203,6 +203,7 @@ data Container = Container
   { containerName       :: String         -- ^ Container name.
   , containerConfigPath :: Maybe String   -- ^ Container config path.
   }
+  deriving (Show)
 
 -- | Allocate a new @lxc_container@.
 newC'lxc_container :: Container -> IO (Ptr C'lxc_container)
