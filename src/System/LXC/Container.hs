@@ -83,8 +83,6 @@ module System.LXC.Container (
   mayControl,
   addDeviceNode,
   removeDeviceNode,
-  getRef,
-  dropRef,
   -- * Global LXC functions
   -- ** List containers
   listDefinedContainers,
