@@ -28,6 +28,7 @@ library
     System.LXC.Internal.Utils
   build-depends:      base          >=4.7   &&  <4.8
                     , bindings-lxc  >=0.2   &&  <0.3
+                    , transformers  >=0.4   &&  <0.5
                     , mtl           >=2.2   &&  <2.3
 
 source-repository head

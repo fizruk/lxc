@@ -22,6 +22,7 @@ import Bindings.LXC.Sys.Types
 import Control.Applicative
 import Control.Monad
 import Control.Monad.Reader
+import Control.Monad.IO.Class
 
 import Data.Maybe
 import Data.Word
@@ -127,14 +128,23 @@ type SnapshotFreeFn = Ptr C'lxc_snapshot -> IO ()
 foreign import ccall "dynamic"
   mkFreeFn :: FunPtr SnapshotFreeFn -> SnapshotFreeFn
 
+-- | LXC container-related computations.
+-- @'LXC' ~ 'ReaderT' ('String', 'Ptr' 'C'lxc_container') 'IO'@.
+--
+-- Run @'LXC' a@ computations using 'withContainer'.
 newtype LXC a = LXC { runLXC :: ReaderT (String, Ptr C'lxc_container) IO a }
-  deriving (Functor, Applicative, Monad, MonadReader (String, Ptr C'lxc_container))
+  deriving (Functor, Applicative, Monad, MonadReader (String, Ptr C'lxc_container), MonadIO)
 
 lxc :: (Ptr C'lxc_container -> IO a) -> LXC a
 lxc f = LXC . ReaderT $ \(_, p) -> f p
 
-withContainer :: Container -> LXC a -> IO a
-withContainer c m = do
+-- | Run @'LXC' a@ computation for a given 'Container'.
+--
+-- * for the whole computation a single @lxc_container@ structure
+-- will be allocated; it will be automatically freed at the end of
+-- computation.
+withContainer :: MonadIO m => Container -> LXC a -> m a
+withContainer c m = liftIO $ do
   withC'lxc_container c $ \cc -> do
     runReaderT (runLXC m) $ (containerName c, cc)
 

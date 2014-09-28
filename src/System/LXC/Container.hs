@@ -14,7 +14,7 @@
 -----------------------------------------------------------------------------
 module System.LXC.Container (
   -- * LXC Monad
-  LXC(..),
+  LXC,
   withContainer,
   -- * Data types
   Container(..),
