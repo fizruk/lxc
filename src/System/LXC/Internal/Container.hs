@@ -1,3 +1,16 @@
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  System.LXC.Internal.Container
+-- Copyright   :  (c) Nickolay Kudasov 2014
+-- License     :  BSD-style (see the file LICENSE)
+--
+-- Maintainer  :  nickolay.kudasov@gmail.com
+--
+-- Internal module to provide a set of functions to create,
+-- control and manage LXC containers.
+-- Normally you should import @System.LXC@ module only.
+--
+-----------------------------------------------------------------------------
 module System.LXC.Internal.Container where
 
 import Bindings.LXC.AttachOptions
@@ -160,18 +173,20 @@ newtype Container = Container {
   getContainer :: Ptr C'lxc_container   -- ^ A pointer to @lxc_container@ structure.
 }
 
+-- | Container state.
 data ContainerState
-  = ContainerStopped
-  | ContainerStarting
-  | ContainerRunning
-  | ContainerStopping
-  | ContainerAborting
-  | ContainerFreezing
-  | ContainerFrozen
-  | ContainerThawed
-  | ContainerOtherState String
+  = ContainerStopped            -- ^ Container is stopped.
+  | ContainerStarting           -- ^ Container is starting.
+  | ContainerRunning            -- ^ Container is running.
+  | ContainerStopping           -- ^ Container is stopping.
+  | ContainerAborting           -- ^ Container is aborting.
+  | ContainerFreezing           -- ^ Container is freezing.
+  | ContainerFrozen             -- ^ Container is frozen.
+  | ContainerThawed             -- ^ Container is thawed.
+  | ContainerOtherState String  -- ^ Container is in some other state.
   deriving (Eq, Show)
 
+-- | Parse state as string representation.
 parseState :: String -> ContainerState
 parseState "STOPPED"  = ContainerStopped
 parseState "STARTING" = ContainerStarting
@@ -183,6 +198,7 @@ parseState "FROZEN"   = ContainerFrozen
 parseState "THAWED"   = ContainerThawed
 parseState s          = ContainerOtherState s
 
+-- | Get string representation of a state.
 printState :: ContainerState -> String
 printState ContainerStopped         = "STOPPED"
 printState ContainerStarting        = "STARTING"

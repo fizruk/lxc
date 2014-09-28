@@ -1,3 +1,16 @@
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  System.LXC.Internal.AttachOptions
+-- Copyright   :  (c) Nickolay Kudasov 2014
+-- License     :  BSD-style (see the file LICENSE)
+--
+-- Maintainer  :  nickolay.kudasov@gmail.com
+--
+-- Internal module to support options and structures to run
+-- commands inside LXC containers.
+-- Normally you should import @System.LXC@ module only.
+--
+-----------------------------------------------------------------------------
 module System.LXC.Internal.AttachOptions where
 
 import Bindings.LXC.AttachOptions
@@ -17,6 +30,9 @@ import System.LXC.Internal.Utils
 
 import System.Posix.Types
 
+-- | @exec@ function to use for 'System.LXC.Container.attach'.
+--
+-- See 'attachRunCommand' and 'attachRunShell'.
 newtype AttachExecFn = AttachExecFn { getAttachExecFn :: C_lxc_attach_exec_t }
 
 -- | LXC environment policy.
@@ -25,10 +41,12 @@ data AttachEnvPolicy
   | AttachClearEnv    -- ^ Clear the environment.
   deriving (Eq, Show)
 
+-- | Convert 'AttachEnvPolicy' to internal representation.
 fromAttachEnvPolicy :: Num a => AttachEnvPolicy -> a
 fromAttachEnvPolicy AttachKeepEnv   = c'LXC_ATTACH_KEEP_ENV
 fromAttachEnvPolicy AttachClearEnv  = c'LXC_ATTACH_CLEAR_ENV
 
+-- | Flags for 'System.LXC.Container.attach'.
 data AttachFlag
   = AttachMoveToCGroup      -- ^ Move to cgroup. On by default.
   | AttachDropCapabilities  -- ^ Drop capabilities. On by default.
@@ -40,6 +58,7 @@ data AttachFlag
   | AttachLSM               -- ^ All Linux Security Module flags.
   deriving (Eq, Show)
 
+-- | Convert 'AttachFlag' to bit flag.
 fromAttachFlag :: Num a => AttachFlag -> a
 fromAttachFlag AttachMoveToCGroup     = c'LXC_ATTACH_MOVE_TO_CGROUP
 fromAttachFlag AttachDropCapabilities = c'LXC_ATTACH_DROP_CAPABILITIES
@@ -111,6 +130,7 @@ data AttachCommand = AttachCommand
   , attachArgv    :: [String] -- ^ The @argv@ of that program, including the program itself as the first element.
   }
 
+-- | Allocate @lxc_attach_options_t@ structure in a temporary storage.
 withC'lxc_attach_options_t :: AttachOptions -> (Ptr C'lxc_attach_options_t -> IO a) -> IO a
 withC'lxc_attach_options_t a f = do
   alloca $ \ca ->
@@ -133,6 +153,7 @@ withC'lxc_attach_options_t a f = do
               poke (p'lxc_attach_options_t'stderr_fd      ca) (fromIntegral . attachStderrFD                     $ a)
               f ca
 
+-- | Allocate @lxc_attach_command_t@ structure in a temporary storage.
 withC'lxc_attach_command_t :: AttachCommand -> (Ptr C'lxc_attach_command_t -> IO a) -> IO a
 withC'lxc_attach_command_t a f = do
   alloca $ \ca ->

@@ -1,3 +1,17 @@
+-----------------------------------------------------------------------------
+-- |
+-- Module      :  System.LXC.Container
+-- Copyright   :  (c) Nickolay Kudasov 2014
+-- License     :  BSD-style (see the file LICENSE)
+--
+-- Maintainer  :  nickolay.kudasov@gmail.com
+--
+-- This module provides a set of functions to create, control and manage
+-- LXC containers. You can get more info about LXC at <https://help.ubuntu.com/lts/serverguide/lxc.html>.
+--
+-- Normally you should import @System.LXC@ module only.
+--
+-----------------------------------------------------------------------------
 module System.LXC.Container (
   -- * Data types
   Container(..),
