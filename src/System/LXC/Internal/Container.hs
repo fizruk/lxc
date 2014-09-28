@@ -26,13 +26,8 @@ import Control.Monad.Reader
 import Data.Maybe
 import Data.Word
 
-import Foreign.C.Types
-import Foreign.C.String
-import Foreign.Marshal.Alloc
-import Foreign.Marshal.Array
-import Foreign.Marshal.Utils
-import Foreign.Ptr
-import Foreign.Storable
+import Foreign
+import Foreign.C
 
 import System.LXC.Internal.AttachOptions
 import System.LXC.Internal.Utils
