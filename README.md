@@ -49,7 +49,7 @@ Haddock documentation is available at http://fizruk.github.io/lxc/docs/
 
 ## Usage
 
-You can start using these bindings just like command line tool:
+You can start using these bindings similar to a command line tool:
 
 ```
 $ ghci
