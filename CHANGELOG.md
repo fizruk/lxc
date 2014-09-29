@@ -1,3 +1,16 @@
+0.3
+---
+* introduced `LXC` monad
+* `transformers` and `mtl` added to dependencies
+* convert container-related functions to use `LXC` monad
+* `listContainers` functions now return `[Container]` instead of `[(String, Ptr C'lxc_container)]`
+* removed `mkContainer` function
+* remove `getRef` and `dropRef` from `System.LXC.Container`
+* `Container` is now pure Haskell data structure
+* added `examples/`
+* `Internal` gains `C'lxc_container` marshalling helpers (e.g. `withC'lxc_container`)
+* fixed potential segfaults in `snapshotList` and `list*Containers`
+
 0.2
 ---
 * LXC errors through `getLastError` function
