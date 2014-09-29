@@ -717,7 +717,7 @@ snapshotList = lxc $ \c -> do
   alloca $ \css -> do
     fn <- mkFn mkSnapshotListFn p'lxc_container'snapshot_list c
     n  <- fromIntegral <$> fn css
-    if (n < 0)
+    if (n <= 0)
       then return []
       else do
         css'  <- peek css
@@ -836,7 +836,7 @@ listContainersFn f lxcpath = do
     alloca $ \cnames ->
       alloca $ \ccontainers -> do
         n <- fromIntegral <$> f clxcpath cnames ccontainers
-        if (n < 0)
+        if (n <= 0)
           then return []
           else do
             cnames'  <- peek cnames
