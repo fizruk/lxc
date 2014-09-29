@@ -49,7 +49,15 @@ Haddock documentation is available at http://fizruk.github.io/lxc/docs/
 
 ## Usage
 
-You can start using these bindings similar to a command line tool:
+Most of container-related functions (e.g. `start`, `attach`, `destroy`) perform in a `LXC` monad.
+To run `LXC a` computation you need to specify a container using `withContainer` function.
+When working with a single container it might be handy to have an alias like this:
+
+```haskell
+let containerName = withContainer (Container "container-name" configPath)
+```
+
+You can start using Haskell LXC API bindings similar to a command line tool from GHCi:
 
 ```
 $ ghci
@@ -87,6 +95,8 @@ True
 >>> trustySnap state
 ContainerStopped
 ```
+
+For more examples, please see `examples/` folder.
 
 ## Contributing
 
