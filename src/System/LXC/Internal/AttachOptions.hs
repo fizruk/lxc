@@ -18,13 +18,8 @@ import Bindings.LXC.AttachOptions
 import Data.Int
 import Data.Maybe
 
-import Foreign.C.Types
-import Foreign.C.String
-import Foreign.Marshal.Alloc
-import Foreign.Marshal.Array
-import Foreign.Marshal.Utils
-import Foreign.Ptr
-import Foreign.Storable
+import Foreign
+import Foreign.C
 
 import System.LXC.Internal.Utils
 

@@ -1,3 +1,5 @@
+{-# LANGUAGE MultiParamTypeClasses #-}
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  System.LXC.Internal.Container
@@ -19,17 +21,14 @@ import Bindings.LXC.Sys.Types
 
 import Control.Applicative
 import Control.Monad
+import Control.Monad.Reader
+import Control.Monad.IO.Class
 
 import Data.Maybe
 import Data.Word
 
-import Foreign.C.Types
-import Foreign.C.String
-import Foreign.Marshal.Alloc
-import Foreign.Marshal.Array
-import Foreign.Marshal.Utils
-import Foreign.Ptr
-import Foreign.Storable
+import Foreign
+import Foreign.C
 
 import System.LXC.Internal.AttachOptions
 import System.LXC.Internal.Utils
@@ -129,6 +128,26 @@ type SnapshotFreeFn = Ptr C'lxc_snapshot -> IO ()
 foreign import ccall "dynamic"
   mkFreeFn :: FunPtr SnapshotFreeFn -> SnapshotFreeFn
 
+-- | LXC container-related computations.
+-- @'LXC' ~ 'ReaderT' ('String', 'Ptr' 'C'lxc_container') 'IO'@.
+--
+-- Run @'LXC' a@ computations using 'withContainer'.
+newtype LXC a = LXC { runLXC :: ReaderT (String, Ptr C'lxc_container) IO a }
+  deriving (Functor, Applicative, Monad, MonadReader (String, Ptr C'lxc_container), MonadIO)
+
+lxc :: (Ptr C'lxc_container -> IO a) -> LXC a
+lxc f = LXC . ReaderT $ \(_, p) -> f p
+
+-- | Run @'LXC' a@ computation for a given 'Container'.
+--
+-- * for the whole computation a single @lxc_container@ structure
+-- will be allocated; it will be automatically freed at the end of
+-- computation.
+withContainer :: MonadIO m => Container -> LXC a -> m a
+withContainer c m = liftIO $ do
+  withC'lxc_container c $ \cc -> do
+    runReaderT (runLXC m) $ (containerName c, cc)
+
 -- | LXC error structure.
 data LXCError = LXCError
   { lxcErrorString  :: String   -- ^ Error message.
@@ -180,9 +199,33 @@ data Snapshot = Snapshot
   deriving (Show)
 
 -- | Container object.
-newtype Container = Container {
-  getContainer :: Ptr C'lxc_container   -- ^ A pointer to @lxc_container@ structure.
-}
+data Container = Container
+  { containerName       :: String         -- ^ Container name.
+  , containerConfigPath :: Maybe String   -- ^ Container config path.
+  }
+  deriving (Show)
+
+-- | Allocate a new @lxc_container@.
+newC'lxc_container :: Container -> IO (Ptr C'lxc_container)
+newC'lxc_container (Container name configPath) = do
+  c <- withCString name $ \cname ->
+        maybeWith withCString configPath $ \cconfigPath ->
+          c'lxc_container_new cname cconfigPath
+  when (c == nullPtr) $ error "failed to allocate new container"
+  return c
+
+peekC'lxc_container :: Ptr C'lxc_container -> IO (String -> Container)
+peekC'lxc_container ptr = do
+  configPath <- peek (p'lxc_container'config_path ptr) >>= maybePeek peekCString
+  return $ \name -> Container name configPath
+
+-- | Marshal 'Container' to @lxc_container@ using temporary storage.
+withC'lxc_container :: Container -> (Ptr C'lxc_container -> IO a) -> IO a
+withC'lxc_container c f = do
+  cc <- newC'lxc_container c
+  ret <- f cc
+  dropRef cc
+  return ret
 
 -- | Container state.
 data ContainerState
@@ -257,45 +300,32 @@ withC'bdev_specs specs f = do
                               cDirectory
               with cspecs f
 
--- | Allocate a new container.
-mkContainer :: String           -- ^ Name to use for the container.
-            -> Maybe FilePath   -- ^ Full path to configuration file to use.
-            -> IO Container     -- ^ Newly allocated container.
-mkContainer name configPath = do
-  c <- withCString name $ \cname ->
-          case configPath of
-            Nothing -> c'lxc_container_new cname nullPtr
-            Just s  -> withCString s $ c'lxc_container_new cname
-  when (c == nullPtr) $ error "failed to allocate new container"
-  return $ Container c
-
 type Field s a = Ptr s -> Ptr a
 
-mkFn :: (t -> Ptr s) -> (FunPtr (Ptr s -> a) -> (Ptr s -> a)) -> Field s (FunPtr (Ptr s -> a)) -> t -> IO a
-mkFn unwrap mk g t = do
-  let s = unwrap t
+mkFn :: (FunPtr (Ptr s -> a) -> (Ptr s -> a)) -> Field s (FunPtr (Ptr s -> a)) -> Ptr s -> IO a
+mkFn mk g s = do
   fn <- peek (g s)
   return $ mk fn s
 
-boolFn :: Field C'lxc_container (FunPtr ContainerBoolFn) -> Container -> IO Bool
-boolFn g c = do
-  fn <- mkFn getContainer mkBoolFn g c
+boolFn :: Field C'lxc_container (FunPtr ContainerBoolFn) -> LXC Bool
+boolFn g = lxc $ \c -> do
+  fn <- mkFn mkBoolFn g c
   toBool <$> fn
 
-stringBoolFn :: Field C'lxc_container (FunPtr ContainerStringBoolFn) -> Container -> Maybe String -> IO Bool
-stringBoolFn g c s = do
-  fn <- mkFn getContainer mkStringBoolFn g c
+stringBoolFn :: Field C'lxc_container (FunPtr ContainerStringBoolFn) -> Maybe String -> LXC Bool
+stringBoolFn g s = lxc $ \c -> do
+  fn <- mkFn mkStringBoolFn g c
   maybeWith withCString s $ \cs ->
     toBool <$> fn cs
 
-boolBoolFn :: Field C'lxc_container (FunPtr ContainerBoolBoolFn) -> Container -> Bool -> IO Bool
-boolBoolFn g c b = do
-  fn <- mkFn getContainer mkBoolBoolFn g c
+boolBoolFn :: Field C'lxc_container (FunPtr ContainerBoolBoolFn) -> Bool -> LXC Bool
+boolBoolFn g b = lxc $ \c -> do
+  fn <- mkFn mkBoolBoolFn g c
   toBool <$> fn (if b then 1 else 0)
 
-getItemFn :: Field C'lxc_container (FunPtr ContainerGetItemFn) -> Container -> String -> IO (Maybe String)
-getItemFn g c s = do
-  fn <- mkFn getContainer mkGetItemFn g c
+getItemFn :: Field C'lxc_container (FunPtr ContainerGetItemFn) -> String -> LXC (Maybe String)
+getItemFn g s = lxc $ \c -> do
+  fn <- mkFn mkGetItemFn g c
   withCString s $ \cs -> do
     -- call with NULL for retv to determine size of a buffer we need to allocate
     sz <- fn cs nullPtr 0
@@ -306,23 +336,23 @@ getItemFn g c s = do
         fn cs cretv sz
         Just <$> peekCString cretv
 
-setItemFn :: Field C'lxc_container (FunPtr ContainerSetItemFn) -> Container -> String -> Maybe String -> IO Bool
-setItemFn g c k v = do
-  fn <- mkFn getContainer mkSetItemFn g c
+setItemFn :: Field C'lxc_container (FunPtr ContainerSetItemFn) -> String -> Maybe String -> LXC Bool
+setItemFn g k v = lxc $ \c -> do
+  fn <- mkFn mkSetItemFn g c
   withCString k $ \ck ->
     maybeWith withCString v $ \cv ->
       toBool <$> fn ck cv
 
-setItemFn' :: Field C'lxc_container (FunPtr ContainerSetItemFn) -> Container -> String -> String -> IO Bool
-setItemFn' g c k v = setItemFn g c k (Just v)
+setItemFn' :: Field C'lxc_container (FunPtr ContainerSetItemFn) -> String -> String -> LXC Bool
+setItemFn' g k v = setItemFn g k (Just v)
 
 -- | Whether container wishes to be daemonized.
-getDaemonize :: Container -> IO Bool
-getDaemonize (Container c) = toBool <$> peek (p'lxc_container'daemonize c)
+getDaemonize :: LXC Bool
+getDaemonize = lxc $ \c -> toBool <$> peek (p'lxc_container'daemonize c)
 
 -- | Get last container's error.
-getLastError :: Container -> IO (Maybe LXCError)
-getLastError (Container c) = do
+getLastError :: LXC (Maybe LXCError)
+getLastError = lxc $ \c -> do
   cmsg <- peek (p'lxc_container'error_string c)
   msg  <- maybePeek peekCString cmsg
   num  <- fromIntegral <$> peek (p'lxc_container'error_num c)
@@ -331,18 +361,18 @@ getLastError (Container c) = do
 -- | Determine if @\/var\/lib\/lxc\/\$name\/config@ exists.
 --
 -- @True@ if container is defined, else @False@.
-isDefined :: Container -> IO Bool
+isDefined :: LXC Bool
 isDefined = boolFn p'lxc_container'is_defined
 
 -- | Determine if container is running.
 --
 -- @True@ on success, else @False@.
-isRunning :: Container -> IO Bool
+isRunning :: LXC Bool
 isRunning = boolFn p'lxc_container'is_running
 
 -- | Determine state of container.
-state :: Container -> IO ContainerState
-state (Container c) = do
+state :: LXC ContainerState
+state = lxc $ \c -> do
   fn <- peek (p'lxc_container'state c)
   cs <- mkStringFn fn c  -- we do not need to free cs
   parseState <$> peekCString cs
@@ -350,37 +380,35 @@ state (Container c) = do
 -- | Freeze running container.
 --
 -- @True@ on success, else @False@.
-freeze :: Container -> IO Bool
+freeze :: LXC Bool
 freeze = boolFn p'lxc_container'freeze
 
 -- | Thaw a frozen container.
 --
 -- @True@ on success, else @False@.
-unfreeze :: Container -> IO Bool
+unfreeze :: LXC Bool
 unfreeze = boolFn p'lxc_container'unfreeze
 
 -- | Determine process ID of the containers init process.
-initPID :: Container -> IO (Maybe ProcessID)
-initPID c = do
-  fn <- mkFn getContainer mkProcessIDFn p'lxc_container'init_pid c
+initPID :: LXC (Maybe ProcessID)
+initPID = lxc $ \c -> do
+  fn <- mkFn mkProcessIDFn p'lxc_container'init_pid c
   pid <- fromIntegral <$> fn
   if (pid < 0)
     then return Nothing
     else return (Just pid)
 
 -- | Load the specified configuration for the container.
-loadConfig :: Container       -- ^ Container.
-           -> Maybe FilePath  -- ^ Full path to alternate configuration file, or @Nothing@ to use the default configuration file.
-           -> IO Bool         -- ^ @True@ on success, else @False@.
+loadConfig :: Maybe FilePath  -- ^ Full path to alternate configuration file, or @Nothing@ to use the default configuration file.
+           -> LXC Bool        -- ^ @True@ on success, else @False@.
 loadConfig = stringBoolFn p'lxc_container'load_config
 
 -- | Start the container.
-start :: Container  -- ^ Container.
-      -> Bool       -- ^ Use @lxcinit@ rather than @\/sbin\/init@.
+start :: Bool       -- ^ Use @lxcinit@ rather than @\/sbin\/init@.
       -> [String]   -- ^ Array of arguments to pass to init.
-      -> IO Bool    -- ^ @True@ on success, else @False@.
-start c useinit argv = do
-  fn <- mkFn getContainer mkStartFn p'lxc_container'start c
+      -> LXC Bool   -- ^ @True@ on success, else @False@.
+start useinit argv = lxc $ \c -> do
+  fn <- mkFn mkStartFn p'lxc_container'start c
   case argv of
     [] -> toBool <$> fn (fromBool useinit) nullPtr
     _  -> do
@@ -391,24 +419,22 @@ start c useinit argv = do
 -- | Stop the container.
 --
 -- @True@ on success, else @False@.
-stop :: Container -> IO Bool
+stop :: LXC Bool
 stop = boolFn p'lxc_container'stop
 
 -- | Determine if the container wants to run disconnected from the terminal.
-wantDaemonize :: Container  -- ^ Container.
-              -> Bool       -- ^ Value for the daemonize bit.
-              -> IO Bool    -- ^ @True@ if container wants to be daemonised, else @False@.
+wantDaemonize :: Bool       -- ^ Value for the daemonize bit.
+              -> LXC Bool   -- ^ @True@ if container wants to be daemonised, else @False@.
 wantDaemonize = boolBoolFn p'lxc_container'want_daemonize
 
 -- | Determine whether container wishes all file descriptors to be closed on startup.
-wantCloseAllFDs :: Container  -- ^ Container.
-                -> Bool       -- ^ Value for the @close_all_fds@ bit.
-                -> IO Bool    -- ^ @True@ if container wants to be daemonised, else @False@.
+wantCloseAllFDs :: Bool       -- ^ Value for the @close_all_fds@ bit.
+                -> LXC Bool   -- ^ @True@ if container wants to be daemonised, else @False@.
 wantCloseAllFDs = boolBoolFn p'lxc_container'want_close_all_fds
 
 -- | Return current config file name.
-configFileName :: Container -> IO (Maybe FilePath)
-configFileName (Container c) = do
+configFileName :: LXC (Maybe FilePath)
+configFileName = lxc $ \c -> do
   fn <- peek (p'lxc_container'config_file_name c)
   cs <- mkStringFn fn c
   s <- maybePeek peekCString cs
@@ -419,20 +445,18 @@ configFileName (Container c) = do
 --
 -- * A timeout of @-1@ means wait forever.
 -- A timeout @0@ means do not wait.
-wait :: Container       -- ^ Container.
-     -> ContainerState  -- ^ State to wait for.
+wait :: ContainerState  -- ^ State to wait for.
      -> Int             -- ^ Timeout in seconds.
-     -> IO Bool         -- ^ @True@ if state reached within timeout, else @False@.
-wait c s t = do
-  fn <- mkFn getContainer mkWaitFn p'lxc_container'wait c
+     -> LXC Bool        -- ^ @True@ if state reached within timeout, else @False@.
+wait s t = lxc $ \c -> do
+  fn <- mkFn mkWaitFn p'lxc_container'wait c
   withCString (printState s) $ \cs ->
     toBool <$> fn cs (fromIntegral t)
 
 -- | Set a key/value configuration option.
-setConfigItem :: Container  -- ^ Container.
-              -> String     -- ^ Name of option to set.
+setConfigItem :: String     -- ^ Name of option to set.
               -> String     -- ^ Value to set.
-              -> IO Bool    -- ^ @True@ on success, else @False@.
+              -> LXC Bool   -- ^ @True@ on success, else @False@.
 setConfigItem = setItemFn' p'lxc_container'set_config_item
 
 -- | Delete the container.
@@ -440,51 +464,46 @@ setConfigItem = setItemFn' p'lxc_container'set_config_item
 -- @True@ on success, else @False@.
 --
 -- * NOTE: Container must be stopped and have no dependent snapshots.
-destroy :: Container -> IO Bool
+destroy :: LXC Bool
 destroy = boolFn p'lxc_container'destroy
 
 -- | Save configuaration to a file.
-saveConfig :: Container   -- ^ Container.
-           -> FilePath    -- ^ Full path to file to save configuration in.
-           -> IO Bool     -- ^ @True@ on success, else @False@.
-saveConfig c s = stringBoolFn p'lxc_container'save_config c (Just s)
+saveConfig :: FilePath    -- ^ Full path to file to save configuration in.
+           -> LXC Bool    -- ^ @True@ on success, else @False@.
+saveConfig s = stringBoolFn p'lxc_container'save_config (Just s)
 
 -- | Rename a container.
-rename :: Container   -- ^ Container.
-       -> String      -- ^ New name to be used for the container.
-       -> IO Bool     -- ^ @True@ on success, else @False@.
-rename c s = stringBoolFn p'lxc_container'rename c (Just s)
+rename :: String      -- ^ New name to be used for the container.
+       -> LXC Bool    -- ^ @True@ on success, else @False@.
+rename s = stringBoolFn p'lxc_container'rename (Just s)
 
 -- | Request the container reboot by sending it @SIGINT@.
 --
 --  @True@ if reboot request successful, else @False@.
-reboot :: Container -> IO Bool
+reboot :: LXC Bool
 reboot = boolFn p'lxc_container'reboot
 
 -- | Request the container shutdown by sending it @SIGPWR@.
-shutdown :: Container   -- ^ Container.
-         -> Int         -- ^ Seconds to wait before returning false. (@-1@ to wait forever, @0@ to avoid waiting).
-         -> IO Bool     -- ^ @True@ if the container was shutdown successfully, else @False@.
-shutdown c n = do
-  fn <- mkFn getContainer mkShutdownFn p'lxc_container'shutdown c
+shutdown :: Int         -- ^ Seconds to wait before returning false. (@-1@ to wait forever, @0@ to avoid waiting).
+         -> LXC Bool    -- ^ @True@ if the container was shutdown successfully, else @False@.
+shutdown n = lxc $ \c -> do
+  fn <- mkFn mkShutdownFn p'lxc_container'shutdown c
   toBool <$> fn (fromIntegral n)
 
 -- | Completely clear the containers in-memory configuration.
-clearConfig :: Container -> IO ()
-clearConfig = join . mkFn getContainer mkClearConfigFn p'lxc_container'clear_config
+clearConfig :: LXC ()
+clearConfig = lxc $ join . mkFn mkClearConfigFn p'lxc_container'clear_config
 
 -- | Retrieve the value of a config item.
-getConfigItem :: Container          -- ^ Container.
-              -> String             -- ^ Name of option to get.
-              -> IO (Maybe String)  -- ^ The item or @Nothing@ on error.
+getConfigItem :: String             -- ^ Name of option to get.
+              -> LXC (Maybe String) -- ^ The item or @Nothing@ on error.
 getConfigItem = getItemFn p'lxc_container'get_config_item
 
 -- | Retrieve the value of a config item from running container.
-getRunningConfigItem :: Container           -- ^ Container.
-                     -> String              -- ^ Name of option to get.
-                     -> IO (Maybe String)   -- ^ The item or @Nothing@ on error.
-getRunningConfigItem c k = do
-  fn <- mkFn getContainer mkGetRunningConfigItemFn p'lxc_container'get_running_config_item c
+getRunningConfigItem :: String              -- ^ Name of option to get.
+                     -> LXC (Maybe String)  -- ^ The item or @Nothing@ on error.
+getRunningConfigItem k = lxc $ \c -> do
+  fn <- mkFn mkGetRunningConfigItemFn p'lxc_container'get_running_config_item c
   withCString k $ \ck -> do
     cv <- fn ck
     v <- maybePeek peekCString cv
@@ -492,15 +511,14 @@ getRunningConfigItem c k = do
     return v
 
 -- | Retrieve a list of config item keys given a key prefix.
-getKeys :: Container    -- ^ Container.
-        -> String       -- ^ Key prefix.
-        -> IO [String]  -- ^ List of keys.
-getKeys c kp = concatMap lines . maybeToList <$> getItemFn p'lxc_container'get_keys c kp
+getKeys :: String        -- ^ Key prefix.
+        -> LXC [String]  -- ^ List of keys.
+getKeys kp = concatMap lines . maybeToList <$> getItemFn p'lxc_container'get_keys kp
 
 -- | Obtain a list of network interfaces.
-getInterfaces :: Container -> IO [String]
-getInterfaces c = do
-  cifs  <- join $ mkFn getContainer mkGetInterfacesFn p'lxc_container'get_interfaces c
+getInterfaces :: LXC [String]
+getInterfaces = lxc $ \c -> do
+  cifs  <- join $ mkFn mkGetInterfacesFn p'lxc_container'get_interfaces c
   if (cifs == nullPtr)
     then return []
     else do
@@ -511,13 +529,12 @@ getInterfaces c = do
       return ifs
 
 -- | Determine the list of container IP addresses.
-getIPs :: Container     -- ^ Container.
-       -> String        -- ^ Network interface name to consider.
+getIPs :: String        -- ^ Network interface name to consider.
        -> String        -- ^ Network family (for example @"inet"@, @"inet6"@).
        -> Word32        -- ^ IPv6 scope id (ignored if family is not "inet6").
-       -> IO [String]   -- ^ A list of network interfaces.
-getIPs c iface fam sid = do
-  fn <- mkFn getContainer mkGetIPsFn p'lxc_container'get_ips c
+       -> LXC [String]  -- ^ A list of network interfaces.
+getIPs iface fam sid = lxc $ \c -> do
+  fn <- mkFn mkGetIPsFn p'lxc_container'get_ips c
   withCString iface $ \ciface ->
     withCString fam $ \cfam -> do
       cips  <- fn ciface cfam (fromIntegral sid)
@@ -531,25 +548,22 @@ getIPs c iface fam sid = do
           return ips
 
 -- | Retrieve the specified cgroup subsystem value for the container.
-getCGroupItem :: Container          -- ^ Container.
-              -> String             -- ^ @cgroup@ subsystem to retrieve.
-              -> IO (Maybe String)  -- ^ @cgroup@ subsystem value or @Nothing@ on error.
+getCGroupItem :: String              -- ^ @cgroup@ subsystem to retrieve.
+              -> LXC (Maybe String)  -- ^ @cgroup@ subsystem value or @Nothing@ on error.
 getCGroupItem = getItemFn p'lxc_container'get_cgroup_item
 
 -- | Set the specified cgroup subsystem value for the container.
-setCGroupItem :: Container  -- ^ Container.
-              -> String     -- ^ @cgroup@ subsystem to consider.
+setCGroupItem :: String     -- ^ @cgroup@ subsystem to consider.
               -> String     -- ^ Value to set.
-              -> IO Bool    -- ^ @True@ on success, else @False@.
+              -> LXC Bool   -- ^ @True@ on success, else @False@.
 setCGroupItem = setItemFn' p'lxc_container'set_cgroup_item
 
 -- | Clear a configuration item.
 --
 -- Analog of 'setConfigItem'.
-clearConfigItem :: Container  -- ^ Container.
-                -> String     -- ^ Name of option to clear.
-                -> IO Bool    -- ^ @True@ on success, else @False@.
-clearConfigItem c s = stringBoolFn p'lxc_container'clear_config_item c (Just s)
+clearConfigItem :: String     -- ^ Name of option to clear.
+                -> LXC Bool   -- ^ @True@ on success, else @False@.
+clearConfigItem s = stringBoolFn p'lxc_container'clear_config_item (Just s)
 
 -- | Determine full path to the containers configuration file.
 --
@@ -560,48 +574,50 @@ clearConfigItem c s = stringBoolFn p'lxc_container'clear_config_item c (Just s)
 --
 -- The value for a specific container can be changed using
 -- 'setConfigPath'.
-getConfigPath :: Container -> IO FilePath
-getConfigPath c = do
-  cs <- join $ mkFn getContainer mkStringFn p'lxc_container'get_config_path c
+getConfigPath :: LXC FilePath
+getConfigPath = lxc $ \c -> do
+  cs <- join $ mkFn mkStringFn p'lxc_container'get_config_path c
   s <- peekCString cs
   free cs
   return s
 
 -- | Set the full path to the containers configuration file.
-setConfigPath :: Container  -- ^ Container.
-              -> FilePath   -- ^ Full path to configuration file.
-              -> IO Bool    -- ^ @True@ on success, else @False@.
-setConfigPath c s = stringBoolFn p'lxc_container'set_config_path c (Just s)
+setConfigPath :: FilePath   -- ^ Full path to configuration file.
+              -> LXC Bool    -- ^ @True@ on success, else @False@.
+setConfigPath s = stringBoolFn p'lxc_container'set_config_path (Just s)
 
 -- | Copy a stopped container.
-clone :: Container      -- ^ Original container.
-      -> Maybe String   -- ^ New name for the container. If @Nothing@, the same name is used and a new lxcpath MUST be specified.
+clone :: Maybe String   -- ^ New name for the container. If @Nothing@, the same name is used and a new lxcpath MUST be specified.
       -> Maybe FilePath -- ^ lxcpath in which to create the new container. If @Nothing@, the original container's lxcpath will be used.
       -> [CloneOption]  -- ^ Additional 'CloneOption' flags to change the cloning behaviour.
       -> Maybe String   -- ^ Optionally force the cloned bdevtype to a specified plugin. By default the original is used (subject to snapshot requirements).
       -> Maybe String   -- ^ Information about how to create the new storage (i.e. fstype and fsdata).
       -> Maybe Word64   -- ^ In case of a block device backing store, an optional size. If @Nothing@, the original backing store's size will be used if possible. Note this only applies to the rootfs. For any other filesystems, the original size will be duplicated.
       -> [String]       -- ^ Additional arguments to pass to the clone hook script.
-      -> IO Container
-clone c newname lxcpath flags bdevtype bdevdata newsize hookargs = do
-  c' <- maybeWith withCString newname $ \cnewname ->
-          maybeWith withCString lxcpath $ \clxcpath ->
-            maybeWith withCString bdevtype $ \cbdevtype ->
-              maybeWith withCString bdevdata $ \cbdevdata ->
-                withMany withCString hookargs $ \chookargs ->
-                  withArray0 nullPtr chookargs $ \chookargs' -> do
-                    fn <- peek $ p'lxc_container'clone $ getContainer c
-                    mkCloneFn fn
-                      (getContainer c)
-                      cnewname
-                      clxcpath
-                      (mkFlags cloneFlag flags)
-                      cbdevtype
-                      cbdevdata
-                      (fromMaybe 0 newsize)
-                      chookargs'
-  when (c' == nullPtr) $ error "failed to clone a container"
-  return $ Container c'
+      -> LXC (Maybe Container)  -- ^ Newly-allocated copy of container $c$, or @Nothing@ on error.
+clone newname lxcpath flags bdevtype bdevdata newsize hookargs = do
+  oldname <- asks fst
+  lxc $ \c -> do
+    c' <- maybeWith withCString newname $ \cnewname ->
+            maybeWith withCString lxcpath $ \clxcpath ->
+              maybeWith withCString bdevtype $ \cbdevtype ->
+                maybeWith withCString bdevdata $ \cbdevdata ->
+                  withMany withCString hookargs $ \chookargs ->
+                    withArray0 nullPtr chookargs $ \chookargs' -> do
+                      fn <- mkFn mkCloneFn p'lxc_container'clone c
+                      fn
+                        cnewname
+                        clxcpath
+                        (mkFlags cloneFlag flags)
+                        cbdevtype
+                        cbdevdata
+                        (fromMaybe 0 newsize)
+                        chookargs'
+    c'' <- maybePeek peekC'lxc_container c'
+    when (isJust c'') $ do
+      dropRef c'
+      return ()
+    return $ c'' <*> pure (fromMaybe oldname newname)
 
 -- | Allocate a console tty for the container.
 --
@@ -609,11 +625,10 @@ clone c newname lxcpath flags bdevtype bdevdata newsize hookargs = do
 -- allocated. The caller should call close(2) on the returned file
 -- descriptor when no longer required so that it may be allocated
 -- by another caller.
-consoleGetFD :: Container                   -- ^ Container.
-             -> Maybe Int                   -- ^ Terminal number to attempt to allocate, or @Nothing@ to allocate the first available tty.
-             -> IO (Maybe (Int, Int, Int))  -- ^ Tuple /@<fd, ttynum, masterfd>@/ where @fd@ is file descriptor number, @ttynum@ is terminal number and @masterfd@ is file descriptor refering to the master side of the pty.
-consoleGetFD c ttynum = do
-  fn <- mkFn getContainer mkConsoleGetFDFn p'lxc_container'console_getfd c
+consoleGetFD :: Maybe Int                   -- ^ Terminal number to attempt to allocate, or @Nothing@ to allocate the first available tty.
+             -> LXC (Maybe (Int, Int, Int)) -- ^ Tuple /@<fd, ttynum, masterfd>@/ where @fd@ is file descriptor number, @ttynum@ is terminal number and @masterfd@ is file descriptor refering to the master side of the pty.
+consoleGetFD ttynum = lxc $ \c -> do
+  fn <- mkFn mkConsoleGetFDFn p'lxc_container'console_getfd c
   alloca $ \cttynum ->
     alloca $ \cmasterfd -> do
       poke cttynum (fromIntegral $ fromMaybe (-1) ttynum)
@@ -625,15 +640,14 @@ consoleGetFD c ttynum = do
         else return $ Just (fd, ttynum', masterfd)
 
 -- | Allocate and run a console tty.
-console :: Container  -- ^ Container.
-        -> Maybe Int  -- ^ Terminal number to attempt to allocate, @Nothing@ to allocate the first available tty or @Just 0@ to allocate the console.
+console :: Maybe Int  -- ^ Terminal number to attempt to allocate, @Nothing@ to allocate the first available tty or @Just 0@ to allocate the console.
         -> Fd         -- ^ File descriptor to read input from.
         -> Fd         -- ^ File descriptor to write output to.
         -> Fd         -- ^ File descriptor to write error output to.
         -> Int        -- ^ The escape character (@1 == \'a\'@, @2 == \'b\'@, ...).
-        -> IO Bool    -- ^ @True@ on success, else @False@.
-console c ttynum stdin stdout stderr escape = do
-  fn <- mkFn getContainer mkConsoleFn p'lxc_container'console c
+        -> LXC Bool   -- ^ @True@ on success, else @False@.
+console ttynum stdin stdout stderr escape = lxc $ \c -> do
+  fn <- mkFn mkConsoleFn p'lxc_container'console c
   toBool <$> fn (fromIntegral $ fromMaybe (-1) ttynum)
                 (fromIntegral stdin)
                 (fromIntegral stdout)
@@ -641,13 +655,12 @@ console c ttynum stdin stdout stderr escape = do
                 (fromIntegral escape)
 
 -- | Create a sub-process attached to a container and run a function inside it.
-attach :: Container             -- ^ Container.
-       -> AttachExecFn          -- ^ Function to run.
+attach :: AttachExecFn          -- ^ Function to run.
        -> AttachCommand         -- ^ Data to pass to @exec@ function.
        -> AttachOptions         -- ^ Attach options.
-       -> IO (Maybe ProcessID)  -- ^ Process ID of process running inside container @c@ that is running @exec@ function, or @Nothing@ on error.
-attach c exec cmd opts = do
-  fn <- mkFn getContainer mkAttachFn p'lxc_container'attach c
+       -> LXC (Maybe ProcessID) -- ^ Process ID of process running inside container @c@ that is running @exec@ function, or @Nothing@ on error.
+attach exec cmd opts = lxc $ \c -> do
+  fn <- mkFn mkAttachFn p'lxc_container'attach c
   withC'lxc_attach_command_t cmd $ \ccmd ->
     withC'lxc_attach_options_t opts $ \copts ->
       alloca $ \cpid -> do
@@ -657,13 +670,12 @@ attach c exec cmd opts = do
           else Just . fromIntegral <$> peek cpid
 
 -- | Run a program inside a container and wait for it to exit.
-attachRunWait :: Container            -- ^ Container.
-              -> AttachOptions        -- ^ Attach options.
+attachRunWait :: AttachOptions        -- ^ Attach options.
               -> String               -- ^ Full path inside container of program to run.
               -> [String]             -- ^ Array of arguments to pass to program.
-              -> IO (Maybe ExitCode)  -- ^ @waitpid(2)@ status of exited process that ran program, or @Nothing@ on error.
-attachRunWait c opts prg argv = do
-  fn <- mkFn getContainer mkAttachRunWaitFn p'lxc_container'attach_run_wait c
+              -> LXC (Maybe ExitCode) -- ^ @waitpid(2)@ status of exited process that ran program, or @Nothing@ on error.
+attachRunWait opts prg argv = lxc $ \c -> do
+  fn <- mkFn mkAttachRunWaitFn p'lxc_container'attach_run_wait c
   withCString prg $ \cprg ->
     withMany withCString argv $ \cargv ->
       withArray0 nullPtr cargv $ \cargv' ->
@@ -680,12 +692,11 @@ attachRunWait c opts prg argv = do
 -- @\/var\/lib\/lxc\/\<c\>\/snaps\/snap\<n\>@
 -- where @\<c\>@ represents the container name and @\<n\>@
 -- represents the zero-based snapshot number.
-snapshot :: Container       -- ^ Container.
-         -> FilePath        -- ^ Full path to file containing a description of the snapshot.
-         -> IO (Maybe Int)  -- ^ @Nothing@ on error, or zero-based snapshot number.
-snapshot c path = do
-  fn <- mkFn getContainer mkSnapshotFn p'lxc_container'snapshot c
-  withCString path $ \cpath -> do
+snapshot :: Maybe FilePath  -- ^ Full path to file containing a description of the snapshot.
+         -> LXC (Maybe Int) -- ^ @Nothing@ on error, or zero-based snapshot number.
+snapshot path = lxc $ \c -> do
+  fn <- mkFn mkSnapshotFn p'lxc_container'snapshot c
+  maybeWith withCString path $ \cpath -> do
     n <- fn cpath
     if (n == -1)
       then return Nothing
@@ -701,18 +712,18 @@ peekC'lxc_snapshot ptr = Snapshot
     peekField g f = peek (f ptr) >>= g
 
 -- | Obtain a list of container snapshots.
-snapshotList :: Container -> IO [Snapshot]
-snapshotList c = do
+snapshotList :: LXC [Snapshot]
+snapshotList = lxc $ \c -> do
   alloca $ \css -> do
-    fn <- mkFn getContainer mkSnapshotListFn p'lxc_container'snapshot_list c
+    fn <- mkFn mkSnapshotListFn p'lxc_container'snapshot_list c
     n  <- fromIntegral <$> fn css
-    if (n < 0)
+    if (n <= 0)
       then return []
       else do
         css'  <- peek css
         let css'' = take n $ iterate (flip advancePtr 1) css'
         css   <- mapM peekC'lxc_snapshot css''
-        forM_ css'' $ join . mkFn id mkFreeFn p'lxc_snapshot'free
+        forM_ css'' $ join . mkFn mkFreeFn p'lxc_snapshot'free
         free css'
         return css
 
@@ -728,56 +739,51 @@ snapshotList c = do
 -- * /NOTE:/ As an example, if the container exists as @\/var\/lib\/lxc\/c1@, snapname might be @"snap0"@
 -- (representing @\/var\/lib\/lxc\/c1\/snaps\/snap0@). If new name is @c2@,
 -- then @snap0@ will be copied to @\/var\/lib\/lxc\/c2@.
-snapshotRestore :: Container  -- ^ Container.
-                -> String     -- ^ Name of snapshot.
+snapshotRestore :: String     -- ^ Name of snapshot.
                 -> String     -- ^ Name to be used for the restored snapshot.
-                -> IO Bool    -- ^ @True@ on success, else @False@.
+                -> LXC Bool   -- ^ @True@ on success, else @False@.
 snapshotRestore = setItemFn' p'lxc_container'snapshot_restore
 
 -- | Destroy the specified snapshot.
-snapshotDestroy :: Container  -- ^ Container.
-                -> String     -- ^ Name of snapshot.
-                -> IO Bool    -- ^ @True@ on success, else @False@.
-snapshotDestroy c n = stringBoolFn p'lxc_container'snapshot_destroy c (Just n)
+snapshotDestroy :: String     -- ^ Name of snapshot.
+                -> LXC Bool   -- ^ @True@ on success, else @False@.
+snapshotDestroy n = stringBoolFn p'lxc_container'snapshot_destroy (Just n)
 
 -- | Determine if the caller may control the container.
 --
 -- @False@ if there is a control socket for the container monitor
 -- and the caller may not access it, otherwise returns @True@.
-mayControl :: Container -> IO Bool
+mayControl :: LXC Bool
 mayControl = boolFn p'lxc_container'may_control
 
 -- | Add specified device to the container.
-addDeviceNode :: Container      -- ^ Container.
-              -> FilePath       -- ^ Full path of the device.
+addDeviceNode :: FilePath       -- ^ Full path of the device.
               -> Maybe FilePath -- ^ Alternate path in the container (or @Nothing@ to use source path).
-              -> IO Bool        -- ^ @True@ on success, else @False@.
+              -> LXC Bool       -- ^ @True@ on success, else @False@.
 addDeviceNode = setItemFn p'lxc_container'add_device_node
 
 -- | Remove specified device from the container.
-removeDeviceNode :: Container      -- ^ Container.
-                 -> FilePath       -- ^ Full path of the device.
+removeDeviceNode :: FilePath       -- ^ Full path of the device.
                  -> Maybe FilePath -- ^ Alternate path in the container (or @Nothing@ to use source path).
-                 -> IO Bool        -- ^ @True@ on success, else @False@.
+                 -> LXC Bool       -- ^ @True@ on success, else @False@.
 removeDeviceNode = setItemFn p'lxc_container'remove_device_node
 
 -- | Create a container.
-create :: Container         -- ^ Container (with lxcpath, name and a starting configuration set).
-       -> String            -- ^ Template to execute to instantiate the root filesystem and adjust the configuration.
+create :: String            -- ^ Template to execute to instantiate the root filesystem and adjust the configuration.
        -> Maybe String      -- ^ Backing store type to use (if @Nothing@, @dir@ type will be used by default).
        -> Maybe BDevSpecs   -- ^ Additional parameters for the backing store (for example LVM volume group to use).
        -> [CreateOption]    -- ^ 'CreateOption' flags. /Note: LXC 1.0 supports only @CreateQuiet@ option./
        -> [String]          -- ^ Arguments to pass to the template.
-       -> IO Bool           -- ^ @True@ on success. @False@ otherwise.
-create c t bdevtype bdevspecs flags argv = toBool <$> do
+       -> LXC Bool          -- ^ @True@ on success. @False@ otherwise.
+create t bdevtype bdevspecs flags argv = lxc $ \c -> toBool <$> do
   withMany withCString argv $ \cargv ->
     withArray0 nullPtr cargv $ \cargv' ->
        withCString t $ \ct ->
          maybeWith withCString bdevtype $ \cbdevtype ->
            maybeWith withC'bdev_specs bdevspecs $ \cbdevspecs -> do
-             fn <- peek $ p'lxc_container'create $ getContainer c
+             fn <- peek $ p'lxc_container'create $ c
              mkCreateFn fn
-               (getContainer c)
+               (c)
                ct
                cbdevtype
                nullPtr
@@ -785,15 +791,15 @@ create c t bdevtype bdevspecs flags argv = toBool <$> do
                cargv'
 
 -- | Add a reference to the specified container.
-getRef :: Container -> IO Bool
-getRef (Container c) = toBool <$> c'lxc_container_get c
+getRef :: Ptr C'lxc_container -> IO Bool
+getRef c = toBool <$> c'lxc_container_get c
 
 -- | Drop a reference to the specified container.
 --
 -- @Just False@ on success, @Just True@ if reference was successfully dropped
 -- and container has been freed, and @Nothing@ on error.
-dropRef :: Container -> IO (Maybe Bool)
-dropRef (Container c) = do
+dropRef :: Ptr C'lxc_container -> IO (Maybe Bool)
+dropRef c = do
   n <- c'lxc_container_put c
   return $ case n of
              0 -> Just False
@@ -824,13 +830,13 @@ getVersion = c'lxc_get_version >>= peekCString
 
 listContainersFn :: (CString -> Ptr (Ptr CString) -> Ptr (Ptr (Ptr C'lxc_container)) -> IO CInt)
                  -> Maybe String
-                 -> IO [(String, Container)]
+                 -> IO [Container]
 listContainersFn f lxcpath = do
   maybeWith withCString lxcpath $ \clxcpath ->
     alloca $ \cnames ->
       alloca $ \ccontainers -> do
         n <- fromIntegral <$> f clxcpath cnames ccontainers
-        if (n < 0)
+        if (n <= 0)
           then return []
           else do
             cnames'  <- peek cnames
@@ -839,26 +845,28 @@ listContainersFn f lxcpath = do
             mapM_ free cnames''
             free cnames'
 
-            ccontainers' <- peek ccontainers
-            containers   <- map Container <$> peekArray n ccontainers'
+            ccontainers'  <- peek ccontainers
+            ccontainers'' <- peekArray n ccontainers'
+            containers    <- mapM peekC'lxc_container ccontainers''
+            mapM_ free ccontainers''
             free ccontainers'
 
-            return $ zip names containers
+            return $ zipWith ($) containers names
 
 
 -- | Get a list of defined containers in a lxcpath.
 listDefinedContainers :: Maybe String               -- ^ lxcpath under which to look.
-                      -> IO [(String, Container)]   -- ^ List of <name, container> pairs.
+                      -> IO [Container]   -- ^ List of <name, container> pairs.
 listDefinedContainers = listContainersFn c'list_defined_containers
 
 -- | Get a list of active containers for a given lxcpath.
 listActiveContainers :: Maybe String               -- ^ Full @LXCPATH@ path to consider.
-                     -> IO [(String, Container)]   -- ^ List of <name, container> pairs.
+                     -> IO [Container]   -- ^ List of <name, container> pairs.
 listActiveContainers = listContainersFn c'list_active_containers
 
 -- | Get a complete list of all containers for a given lxcpath.
 listAllContainers :: Maybe String               -- ^ Full @LXCPATH@ path to consider.
-                  -> IO [(String, Container)]   -- ^ List of <name, container> pairs.
+                  -> IO [Container]   -- ^ List of <name, container> pairs.
 listAllContainers = listContainersFn c'list_all_containers
 
 -- | Close log file.

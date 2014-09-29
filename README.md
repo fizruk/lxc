@@ -49,11 +49,21 @@ Haddock documentation is available at http://fizruk.github.io/lxc/docs/
 
 ## Usage
 
-You can start using these bindings just like command line tool:
+Most of container-related functions (e.g. `start`, `attach`, `destroy`) perform in a `LXC` monad.
+To run `LXC a` computation you need to specify a container using `withContainer` function.
+When working with a single container it might be handy to have an alias like this:
+
+```haskell
+let containerName = withContainer (Container "container-name" configPath)
+```
+
+You can start using Haskell LXC API bindings similar to a command line tool from GHCi:
 
 ```
->>> trusty <- mkContainer "trusty" Nothing
->>> create trusty "download" Nothing Nothing [] ["-d", "ubuntu", "-r", "trusty", "-a", "amd64"]
+$ ghci
+>>> import System.LXC
+>>> let trusty = withContainer (Container "trusty" Nothing)
+>>> trusty $ create "download" Nothing Nothing [] ["-d", "ubuntu", "-r", "trusty", "-a", "amd64"]
 Using image from local cache
 Unpacking the rootfs
 
@@ -63,27 +73,30 @@ The default username/password is: ubuntu / ubuntu
 To gain root privileges, please use sudo.
 
 True
->>> start trusty False []
+>>> trusty $ start False []
 True
->>> state trusty
+>>> trusty state
 ContainerRunning
->>> attachRunWait trusty defaultAttachOptions "echo" ["echo", "Hello, world!"]
+>>> trusty $ attachRunWait defaultAttachOptions "echo" ["echo", "Hello, world!"]
 Hello, world!
 Just ExitSuccess
->>> stop trusty
+>>> trusty stop
 True
->>> trustySnap <- clone trusty (Just "trusty-snap") Nothing [CloneSnapshot] Nothing Nothing Nothing []
->>> start trustySnap False []
+>>> Just trustySnapC <- trusty $ clone (Just "trusty-snap") Nothing [CloneSnapshot] Nothing Nothing Nothing []
+>>> let trustySnap = withContainer trustySnapC
+>>> trustySnap $ start False []
 True
->>> getInterfaces trustySnap
+>>> trustySnap getInterfaces
 ["eth0","lo"]
->>> getIPs trustySnap "eth0" "inet" 0
+>>> trustySnap $ getIPs "eth0" "inet" 0
 ["10.0.3.135"]
->>> shutdown trustySnap (-1)
+>>> trustySnap $ shutdown (-1)
 True
->>> state trustySnap
+>>> trustySnap state
 ContainerStopped
 ```
+
+For more examples, please see `examples/` folder.
 
 ## Contributing
 

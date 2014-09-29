@@ -13,13 +13,15 @@
 --
 -----------------------------------------------------------------------------
 module System.LXC.Container (
+  -- * LXC Monad
+  LXC,
+  withContainer,
   -- * Data types
   Container(..),
   Snapshot(..),
   BDevSpecs(..),
   ContainerState(..),
   parseState, printState,
-  mkContainer,
   -- * Flags
   CloneOption(..),
   CreateOption(..),
@@ -81,8 +83,6 @@ module System.LXC.Container (
   mayControl,
   addDeviceNode,
   removeDeviceNode,
-  getRef,
-  dropRef,
   -- * Global LXC functions
   -- ** List containers
   listDefinedContainers,
