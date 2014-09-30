@@ -1,3 +1,8 @@
+0.3.1
+---
+* added `snapshotDestroy` to `System.LXC.Container`
+* minor documentation improvements
+
 0.3
 ---
 * introduced `LXC` monad
