@@ -7,7 +7,7 @@
 -- Maintainer  :  nickolay.kudasov@gmail.com
 --
 -- Create, control and manage LXC containers through Haskell API.
--- You can get more info about LXC at <https://help.ubuntu.com/lts/serverguide/lxc.html>.
+-- You can get more info about LXC at <https://help.ubuntu.com/lts/serverguide/lxc.html> and <https://linuxcontainers.org>.
 --
 -- Most of container-related functions (e.g. 'start', 'attach', 'destroy') perform in 'System.LXC.Container.LXC' monad.
 -- To run @'System.LXC.Container.LXC' a@ computation you need to specify a container using 'withContainer' function.

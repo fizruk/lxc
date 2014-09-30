@@ -7,7 +7,8 @@
 -- Maintainer  :  nickolay.kudasov@gmail.com
 --
 -- This module provides a set of functions to create, control and manage
--- LXC containers. You can get more info about LXC at <https://help.ubuntu.com/lts/serverguide/lxc.html>.
+-- LXC containers.
+-- You can get more info about LXC at <https://help.ubuntu.com/lts/serverguide/lxc.html> and <https://linuxcontainers.org>.
 --
 -- Normally you should import @System.LXC@ module only.
 --
@@ -51,14 +52,13 @@ module System.LXC.Container (
   getRunningConfigItem,
   clearConfig,
   clearConfigItem,
-  -- ** Freeze/unfreeze
-  freeze,
-  unfreeze,
   -- ** Control container state
   start,
   stop,
   reboot,
   shutdown,
+  freeze,
+  unfreeze,
   wait,
   -- ** Manage containers
   create,
@@ -75,6 +75,7 @@ module System.LXC.Container (
   snapshot,
   snapshotList,
   snapshotRestore,
+  snapshotDestroy,
   -- ** Misc
   wantDaemonize,
   wantCloseAllFDs,
