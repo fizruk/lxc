@@ -1,3 +1,7 @@
+0.3.1.1
+---
+* loose `mtl` and `transformers` dependencies for `lxc` to play nice with other libraries
+
 0.3.1
 ---
 * added `snapshotDestroy` to `System.LXC.Container`
