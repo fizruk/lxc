@@ -5,7 +5,7 @@ lxc
 
 High level Haskell bindings to LXC (Linux containers).
 
-The library provides Haskell LXC API, wrapping <http://hackage.haskell.org/package/bindings-lxc bindings-lxc package>. 
+The library provides Haskell LXC API, wrapping [bindings-lxc package](http://hackage.haskell.org/package/bindings-lxc). 
 
 ## Requirements
 
