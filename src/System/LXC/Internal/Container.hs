@@ -1,3 +1,4 @@
+{-# OPTIONS_HADDOCK not-home #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 -----------------------------------------------------------------------------
@@ -594,7 +595,7 @@ clone :: Maybe String   -- ^ New name for the container. If @Nothing@, the same 
       -> Maybe String   -- ^ Information about how to create the new storage (i.e. fstype and fsdata).
       -> Maybe Word64   -- ^ In case of a block device backing store, an optional size. If @Nothing@, the original backing store's size will be used if possible. Note this only applies to the rootfs. For any other filesystems, the original size will be duplicated.
       -> [String]       -- ^ Additional arguments to pass to the clone hook script.
-      -> LXC (Maybe Container)  -- ^ Newly-allocated copy of container $c$, or @Nothing@ on error.
+      -> LXC (Maybe Container)  -- ^ Newly-allocated copy of container @c@, or @Nothing@ on error.
 clone newname lxcpath flags bdevtype bdevdata newsize hookargs = do
   oldname <- asks fst
   lxc $ \c -> do

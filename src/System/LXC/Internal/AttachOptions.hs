@@ -1,3 +1,4 @@
+{-# OPTIONS_HADDOCK not-home #-}
 -----------------------------------------------------------------------------
 -- |
 -- Module      :  System.LXC.Internal.AttachOptions
@@ -121,7 +122,7 @@ defaultAttachOptions = AttachOptions
 
 -- | Representation of a command to run in a container.
 data AttachCommand = AttachCommand
-  { attachProgram :: String   -- ^ The program to run (passed to @execvp@).
+  { attachProgram :: FilePath -- ^ The program to run (passed to @execvp@).
   , attachArgv    :: [String] -- ^ The @argv@ of that program, including the program itself as the first element.
   }
 
