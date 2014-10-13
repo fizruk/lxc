@@ -11,14 +11,8 @@ The library provides Haskell LXC API, wrapping [bindings-lxc package](http://hac
 
 Before installation make sure you have LXC installed on your system with header files and static library.
 
-On Ubuntu 14.04 LTS (Trusty Tahr):
-
-```
-$ sudo apt-get install lxc-dev
-```
-
-On previous Ubuntu versions (including 12.04 LTS Precise Pangolin) standard repositories do not contain `liblxc1` package.
-You might want to use `ppa:ubuntu-lxc/stable` repository instead:
+Although there is `lxc-dev` package in standard Ubuntu repositories,
+you might want to use `ppa:ubuntu-lxc/stable` repository instead:
 
 ```
 $ sudo apt-get install software-properties-common python-software-properties
