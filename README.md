@@ -1,6 +1,7 @@
 lxc
 ===
 
+[![Hackage package](http://img.shields.io/hackage/v/lxc.svg)](http://hackage.haskell.org/package/lxc)
 [![Build Status](https://travis-ci.org/fizruk/lxc.svg?branch=master)](https://travis-ci.org/fizruk/lxc)
 
 High level Haskell bindings to LXC (Linux containers).
