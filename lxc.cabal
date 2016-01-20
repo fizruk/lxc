@@ -27,7 +27,7 @@ library
     System.LXC.Internal.AttachOptions
     System.LXC.Internal.Container
     System.LXC.Internal.Utils
-  build-depends:      base          >=4.7   &&  <4.8
+  build-depends:      base          >=4.7   &&  <5
                     , bindings-lxc  >=0.2   &&  <0.3
                     , transformers  >=0.2
                     , mtl
