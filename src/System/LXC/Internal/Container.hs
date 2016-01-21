@@ -1,4 +1,5 @@
 {-# OPTIONS_HADDOCK not-home #-}
+{-# LANGUAGE CPP #-}
 {-# LANGUAGE MultiParamTypeClasses #-}
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
 -----------------------------------------------------------------------------
@@ -20,10 +21,11 @@ import Bindings.LXC.AttachOptions
 import Bindings.LXC.Container
 import Bindings.LXC.Sys.Types
 
+#if !MIN_VERSION_base(4,8,0)
 import Control.Applicative
+#endif
 import Control.Monad
 import Control.Monad.Reader
-import Control.Monad.IO.Class
 
 import Data.Maybe
 import Data.Word
@@ -225,7 +227,7 @@ withC'lxc_container :: Container -> (Ptr C'lxc_container -> IO a) -> IO a
 withC'lxc_container c f = do
   cc <- newC'lxc_container c
   ret <- f cc
-  dropRef cc
+  _ <- dropRef cc
   return ret
 
 -- | Container state.
@@ -334,7 +336,7 @@ getItemFn g s = lxc $ \c -> do
       then return Nothing
       else allocaBytes (fromIntegral sz) $ \cretv -> do
         -- we call fn second time to actually get item into cretv buffer
-        fn cs cretv sz
+        _ <- fn cs cretv sz
         Just <$> peekCString cretv
 
 setItemFn :: Field C'lxc_container (FunPtr ContainerSetItemFn) -> String -> Maybe String -> LXC Bool
@@ -616,7 +618,7 @@ clone newname lxcpath flags bdevtype bdevdata newsize hookargs = do
                         chookargs'
     c'' <- maybePeek peekC'lxc_container c'
     when (isJust c'') $ do
-      dropRef c'
+      _ <- dropRef c'
       return ()
     return $ c'' <*> pure (fromMaybe oldname newname)
 
@@ -721,12 +723,12 @@ snapshotList = lxc $ \c -> do
     if (n <= 0)
       then return []
       else do
-        css'  <- peek css
-        let css'' = take n $ iterate (flip advancePtr 1) css'
-        css   <- mapM peekC'lxc_snapshot css''
-        forM_ css'' $ join . mkFn mkFreeFn p'lxc_snapshot'free
-        free css'
-        return css
+        css1  <- peek css
+        let css2 = take n $ iterate (flip advancePtr 1) css1
+        css3   <- mapM peekC'lxc_snapshot css2
+        forM_ css2 $ join . mkFn mkFreeFn p'lxc_snapshot'free
+        free css1
+        return css3
 
 -- | Create a new container based on a snapshot.
 --
@@ -781,7 +783,7 @@ create t bdevtype bdevspecs flags argv = lxc $ \c -> toBool <$> do
     withArray0 nullPtr cargv $ \cargv' ->
        withCString t $ \ct ->
          maybeWith withCString bdevtype $ \cbdevtype ->
-           maybeWith withC'bdev_specs bdevspecs $ \cbdevspecs -> do
+           maybeWith withC'bdev_specs bdevspecs $ \_cbdevspecs -> do
              fn <- peek $ p'lxc_container'create $ c
              mkCreateFn fn
                (c)
@@ -812,7 +814,7 @@ getWaitStates :: IO [ContainerState]
 getWaitStates = do
   sz <- fromIntegral <$> c'lxc_get_wait_states nullPtr
   allocaArray sz $ \cstates -> do
-    c'lxc_get_wait_states cstates
+    _ <- c'lxc_get_wait_states cstates
     cstates' <- peekArray sz cstates
     map parseState <$> mapM peekCString cstates'
     -- we do not need to free the strings themselves
